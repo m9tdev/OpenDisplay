@@ -13,9 +13,28 @@ enum OpenDisplayApp {
         }
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
+        applyDebugAppearance()
         let manager = DisplayManager()
-        statusMenu = StatusMenu(manager: manager, keyboard: KeyboardControl(manager: manager))
+        let keyboard = KeyboardControl(manager: manager)
+        statusMenu = StatusMenu(manager: manager, keyboard: keyboard)
+        openDebugSettings(manager: manager, keyboard: keyboard)
         app.run()
+    }
+
+    /// Debug helper: `OpenDisplay --appearance dark` (or `light`) uses that appearance for this app only,
+    /// for screenshots without a change to the system appearance.
+    private static func applyDebugAppearance() {
+        guard let index = CommandLine.arguments.firstIndex(of: "--appearance"),
+              let value = CommandLine.arguments.dropFirst(index + 1).first else { return }
+        NSApp.appearance = NSAppearance(named: value == "dark" ? .darkAqua : .aqua)
+    }
+
+    /// Debug helper: `OpenDisplay --open-settings` opens the Settings window at launch, for screenshots.
+    private static func openDebugSettings(manager: DisplayManager, keyboard: KeyboardControl) {
+        guard CommandLine.arguments.contains("--open-settings") else { return }
+        Timer.scheduledTimer(withTimeInterval: 1, repeats: false) { _ in
+            MainActor.assumeIsolated { SettingsWindow.show(manager: manager, keyboard: keyboard) }
+        }
     }
 
     /// Debug helper: `OpenDisplay --list` prints each display and its brightness.

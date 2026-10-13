@@ -27,6 +27,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         super.init()
         statusItem.button?.image = MenuBarIcon.image()
         menu.delegate = self
+        // Normally nil (the system appearance). The `--appearance` debug option sets it for this app only.
+        menu.appearance = NSApp.appearance
         menu.minimumWidth = Layout.width
         statusItem.menu = menu
         watchNeededRows()
