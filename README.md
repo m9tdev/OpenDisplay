@@ -4,6 +4,13 @@
 
 A free macOS menu bar app to control your displays. It looks and works like the system Sound and Wi-Fi menus.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/menu-expanded-dark.png">
+    <img src="assets/screenshots/menu-expanded-light.png" width="380" alt="The OpenDisplay menu with all controls of an external display">
+  </picture>
+</p>
+
 ## Features
 
 - **Brightness** for the built-in display and for external displays (over DDC/CI). All sliders follow the macOS brightness curve, so the displays match.
@@ -16,6 +23,21 @@ A free macOS menu bar app to control your displays. It looks and works like the 
 - **Resolution, refresh rate, rotation, and main display.**
 - **Extra brightness** for XDR displays: up to 2× the normal maximum.
 - **Presets:** save a setup of displays and apply it with one click.
+
+## Screenshots
+
+Each display shows only brightness and volume. Click a display to show all its controls. Presets and settings are in a separate window.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/menu-dark.png">
+    <img src="assets/screenshots/menu-light.png" width="380" alt="The short OpenDisplay menu with brightness and volume">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/settings-dark.png">
+    <img src="assets/screenshots/settings-light.png" width="460" alt="The OpenDisplay Settings window with keys, Launch at Login, and presets">
+  </picture>
+</p>
 
 ## Requirements
 
