@@ -18,6 +18,8 @@ echo "Built $app (signed: ${identity:-ad hoc})"
 if [ "${1:-}" = "--install" ]; then
     mkdir -p ~/Applications
     pkill -x OpenDisplay || true
+    # Wait until it has quit, or macOS cannot open the new copy.
+    while pgrep -x OpenDisplay > /dev/null; do sleep 0.1; done
     rm -rf ~/Applications/"OpenDisplay.app"
     cp -R "$app" ~/Applications/
     open ~/Applications/"OpenDisplay.app"
