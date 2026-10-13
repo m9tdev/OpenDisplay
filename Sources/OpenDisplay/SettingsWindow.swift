@@ -12,7 +12,7 @@ enum SettingsWindow {
     static func show(manager: DisplayManager, keyboard: KeyboardControl) {
         if window == nil {
             let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(manager: manager, keyboard: keyboard)))
-            window.title = "Better Monitor Settings"
+            window.title = "OpenDisplay Settings"
             window.styleMask = [.titled, .closable]
             window.isReleasedWhenClosed = false
             window.center()

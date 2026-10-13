@@ -1,13 +1,13 @@
 #!/bin/sh
-# Build "Better Monitor.app" into ./build. Pass --install to copy it to ~/Applications.
+# Build "OpenDisplay.app" into ./build. Pass --install to copy it to ~/Applications.
 set -eu
 cd "$(dirname "$0")/.."
 
 swift build -c release
-app="build/Better Monitor.app"
+app="build/OpenDisplay.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS"
-cp "$(swift build -c release --show-bin-path)/BetterMonitor" "$app/Contents/MacOS/"
+cp "$(swift build -c release --show-bin-path)/OpenDisplay" "$app/Contents/MacOS/"
 cp Resources/Info.plist "$app/Contents/"
 # Sign with a stable certificate if there is one, so macOS keeps permissions (Accessibility) after a rebuild.
 # Set SIGN_IDENTITY to choose one. Without a certificate, sign ad hoc.
@@ -17,9 +17,9 @@ echo "Built $app (signed: ${identity:-ad hoc})"
 
 if [ "${1:-}" = "--install" ]; then
     mkdir -p ~/Applications
-    pkill -x BetterMonitor || true
-    rm -rf ~/Applications/"Better Monitor.app"
+    pkill -x OpenDisplay || true
+    rm -rf ~/Applications/"OpenDisplay.app"
     cp -R "$app" ~/Applications/
-    open ~/Applications/"Better Monitor.app"
+    open ~/Applications/"OpenDisplay.app"
     echo "Installed to ~/Applications"
 fi

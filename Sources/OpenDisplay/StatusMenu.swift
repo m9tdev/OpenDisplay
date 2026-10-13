@@ -25,7 +25,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         self.manager = manager
         self.keyboard = keyboard
         super.init()
-        statusItem.button?.image = NSImage(systemSymbolName: "display", accessibilityDescription: "Better Monitor")
+        statusItem.button?.image = NSImage(systemSymbolName: "display", accessibilityDescription: "OpenDisplay")
         menu.delegate = self
         menu.minimumWidth = Layout.width
         statusItem.menu = menu
@@ -42,7 +42,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             }
         }
 
-        // Debug helper: `BetterMonitor --open-menu [seconds]` opens the menu at launch (after 1 s by default), for screenshots.
+        // Debug helper: `OpenDisplay --open-menu [seconds]` opens the menu at launch (after 1 s by default), for screenshots.
         if let index = CommandLine.arguments.firstIndex(of: "--open-menu") {
             let delay = CommandLine.arguments.dropFirst(index + 1).first.flatMap(Double.init) ?? 1
             // A timer, not a main queue block: the menu blocks its caller while it is open,
@@ -223,7 +223,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         let displays = NSMenuItem(title: "Displays Settings…", action: #selector(openDisplaySettings), keyEquivalent: "")
         displays.target = self
         menu.addItem(displays)
-        let quit = NSMenuItem(title: "Quit Better Monitor", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "Quit OpenDisplay", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
         // macOS adds a gear and an X icon to these standard items by itself. No other item has an icon.
         if #available(macOS 27, *) {

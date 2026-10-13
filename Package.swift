@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "BetterMonitor",
+    name: "OpenDisplay",
     platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
-            name: "BetterMonitor",
-            path: "Sources/BetterMonitor",
+            name: "OpenDisplay",
+            path: "Sources/OpenDisplay",
             linkerSettings: [
                 .linkedFramework("IOKit"),
                 .linkedFramework("CoreGraphics"),

@@ -3,7 +3,7 @@ import CoreGraphics
 
 @main
 @MainActor
-enum BetterMonitorApp {
+enum OpenDisplayApp {
     private static var statusMenu: StatusMenu?
 
     static func main() {
@@ -18,7 +18,7 @@ enum BetterMonitorApp {
         app.run()
     }
 
-    /// Debug helper: `BetterMonitor --list` prints each display and its brightness.
+    /// Debug helper: `OpenDisplay --list` prints each display and its brightness.
     private static func printDisplays() {
         var ids = [CGDirectDisplayID](repeating: 0, count: 16)
         var count: UInt32 = 0
