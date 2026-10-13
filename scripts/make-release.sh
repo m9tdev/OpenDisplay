@@ -10,8 +10,7 @@ set -eu
 cd "$(dirname "$0")/.."
 
 notes="${1:?usage: scripts/make-release.sh NOTES_FILE}"
-version="$(plutil -extract CFBundleShortVersionString raw Resources/Info.plist 2> /dev/null \
-    || python3 -c 'import plistlib; print(plistlib.load(open("Resources/Info.plist", "rb"))["CFBundleShortVersionString"])')"
+version="$(plutil -extract CFBundleShortVersionString raw Resources/Info.plist)"
 tag="v$version"
 
 if [ -n "$(git status --porcelain)" ]; then

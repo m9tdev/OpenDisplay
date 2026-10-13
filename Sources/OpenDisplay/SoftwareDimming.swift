@@ -40,11 +40,6 @@ enum SoftwareDimming {
         originals.keys.forEach(restore)
     }
 
-    /// The display's current color table, or nil if it has none (for example while it is off).
-    static func currentMiddleValue(_ id: CGDirectDisplayID) -> CGGammaValue? {
-        read(id).map { $0.red[$0.red.count / 2] }
-    }
-
     private static func read(_ id: CGDirectDisplayID) -> Table? {
         let capacity = CGDisplayGammaTableCapacity(id)
         guard capacity > 0 else { return nil }
