@@ -13,6 +13,7 @@ final class KeyboardControl {
     private let manager: DisplayManager
     private var tap: CFMachPort?
     private var retryTimer: Timer?
+    private var permissionWatch: Timer?
 
     static var isEnabled: Bool {
         get { UserDefaults.standard.object(forKey: "keyboardControl") as? Bool ?? true }
@@ -67,10 +68,25 @@ final class KeyboardControl {
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
         self.tap = tap
+
+        // If the app loses the Accessibility permission while the tap is on (for example when you remove it in
+        // System Settings), macOS can stop all keyboard and mouse input until the app quits. So check the
+        // permission every second, and remove the tap at once when it is gone. Then wait until it is back.
+        let watch = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !Self.hasPermission else { return }
+                self.stop()
+                self.update()
+            }
+        }
+        RunLoop.main.add(watch, forMode: .common)
+        permissionWatch = watch
         return true
     }
 
     private func stop() {
+        permissionWatch?.invalidate()
+        permissionWatch = nil
         guard let tap else { return }
         CGEvent.tapEnable(tap: tap, enable: false)
         CFMachPortInvalidate(tap)
