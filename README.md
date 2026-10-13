@@ -55,6 +55,16 @@ This builds `OpenDisplay.app`, copies it to `~/Applications`, and opens it. The 
 
 For the brightness and volume keys, allow OpenDisplay in System Settings → Privacy & Security → Accessibility. The Settings window (⌘,) has a button for this.
 
+### Screenshots
+
+```sh
+scripts/make-screenshots.sh
+```
+
+This makes the screenshots in `assets/screenshots` again: the menu (short and with all controls) and the Settings window, in light and dark mode. It takes about 30 seconds, and you must not use the mouse or keyboard while it runs. It needs an external display and [Pillow](https://pypi.org/project/pillow/) (`pip3 install pillow`). Afterwards, it restores your settings.
+
+To change the app icon, change the geometry in `scripts/make-app-icon.py` and `Sources/OpenDisplay/MenuBarIcon.swift`, then run `scripts/make-app-icon.py`.
+
 ## How it works
 
 OpenDisplay uses private macOS APIs, because macOS has no public APIs for these features:
