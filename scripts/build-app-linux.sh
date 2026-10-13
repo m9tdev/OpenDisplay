@@ -5,9 +5,13 @@
 #   scripts/build-app-linux.sh             build, and sign with the Developer ID (else ad hoc)
 #   scripts/build-app-linux.sh --notarize  also notarize with Apple, and staple the ticket to the app
 #
-# Signing: a "Developer ID Application" certificate as key.pem + cert.pem in DEVELOPER_ID_DIR
-# (default ~/.config/omarchy-apple-dev/developer-id). Notarizing: an App Store Connect API key, from
-# ~/.appstoreconnect/env (ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_PATH). Needs Nix with flakes.
+# Signing: a "Developer ID Application" certificate. From the environment (DEVELOPER_ID_KEY_PEM and
+# DEVELOPER_ID_CERT_PEM, for example GitHub secrets), else key.pem + cert.pem in DEVELOPER_ID_DIR
+# (default ~/.config/omarchy-apple-dev/developer-id).
+# Notarizing: an App Store Connect API key. From the environment (ASC_KEY_ID, ASC_ISSUER_ID, and the key itself in
+# ASC_KEY_P8), else from ~/.appstoreconnect/env (ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_PATH).
+# Secrets from the environment go to a private temporary folder, which is removed at the end.
+# Needs Nix with flakes.
 # Output: build/OpenDisplay.app and build/OpenDisplay-VERSION.zip.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -23,6 +27,14 @@ esac
 # apple-dev, or APPLE_DEV_FLAKE for another flake (for example a local checkout).
 apple_dev="${APPLE_DEV:-$(nix build --no-link --print-out-paths "${APPLE_DEV_FLAKE:-github:m9tdev/nix-apple-dev}")/bin/apple-dev}"
 identity="${DEVELOPER_ID_DIR:-$HOME/.config/omarchy-apple-dev/developer-id}"
+secrets="$(mktemp -d)"
+trap 'rm -rf "$secrets"' EXIT
+chmod 700 "$secrets"
+if [ -n "${DEVELOPER_ID_KEY_PEM:-}" ] && [ -n "${DEVELOPER_ID_CERT_PEM:-}" ]; then
+    identity="$secrets/developer-id"
+    (umask 077 && mkdir "$identity" && printf '%s\n' "$DEVELOPER_ID_KEY_PEM" > "$identity/key.pem" \
+        && printf '%s\n' "$DEVELOPER_ID_CERT_PEM" > "$identity/cert.pem")
+fi
 version="$(python3 -c 'import plistlib; print(plistlib.load(open("Resources/Info.plist", "rb"))["CFBundleShortVersionString"])')"
 
 # SwiftBuild (the default build system) has no macOS platform in this SDK, so use the native one.
@@ -50,9 +62,14 @@ else
 fi
 
 if [ "$notarize" = 1 ]; then
-    set -a; . "$HOME/.appstoreconnect/env"; set +a
-    key="$(mktemp)"
-    trap 'rm -f "$key"' EXIT
+    if [ -n "${ASC_KEY_P8:-}" ]; then
+        ASC_KEY_PATH="$secrets/AuthKey.p8"
+        (umask 077 && printf '%s\n' "$ASC_KEY_P8" > "$ASC_KEY_PATH")
+    else
+        set -a; . "$HOME/.appstoreconnect/env"; set +a
+    fi
+    : "${ASC_KEY_ID:?ASC_KEY_ID is not set}" "${ASC_ISSUER_ID:?ASC_ISSUER_ID is not set}"
+    key="$secrets/api-key.json"
     "$apple_dev" rcodesign encode-app-store-connect-api-key -o "$key" "$ASC_ISSUER_ID" "$ASC_KEY_ID" "$ASC_KEY_PATH" > /dev/null
     # Uploads the app, waits for Apple's result, and staples the ticket to the app.
     "$apple_dev" rcodesign notary-submit --api-key-file "$key" --staple "$app"
