@@ -14,6 +14,7 @@ enum OpenDisplayApp {
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         applyDebugAppearance()
+        showDebugBackdrop()
         let manager = DisplayManager()
         let keyboard = KeyboardControl(manager: manager)
         statusMenu = StatusMenu(manager: manager, keyboard: keyboard)
@@ -27,6 +28,23 @@ enum OpenDisplayApp {
         guard let index = CommandLine.arguments.firstIndex(of: "--appearance"),
               let value = CommandLine.arguments.dropFirst(index + 1).first else { return }
         NSApp.appearance = NSAppearance(named: value == "dark" ? .darkAqua : .aqua)
+    }
+
+    private static var backdrop: NSWindow?
+
+    /// Debug helper: `OpenDisplay --backdrop` covers the menu bar screen with a plain light or dark color
+    /// (after `--appearance`), above other windows. The menu is glass, so it shows a blur of what is behind it;
+    /// with the backdrop, menu screenshots look the same on every Mac.
+    private static func showDebugBackdrop() {
+        guard CommandLine.arguments.contains("--backdrop"), let screen = NSScreen.screens.first else { return }
+        let dark = NSApp.appearance?.name == .darkAqua
+        let window = NSWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.backgroundColor = dark ? NSColor(white: 0.12, alpha: 1) : NSColor(white: 0.96, alpha: 1)
+        window.level = .floating
+        window.ignoresMouseEvents = true
+        window.setFrame(screen.frame, display: true)
+        window.orderFrontRegardless()
+        backdrop = window
     }
 
     /// Debug helper: `OpenDisplay --open-settings` opens the Settings window at launch, for screenshots.
