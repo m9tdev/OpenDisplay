@@ -30,18 +30,18 @@ enum BrightnessCurve {
         return min(max(0.5 + steps / 10, 0), 1)
     }
 
-    /// The light of a monitor at its lowest DDC brightness, as a part of its maximum. An estimate: typical
-    /// monitors have 30–50 nits at their lowest and 300–500 nits at their highest level. Below this light,
-    /// the monitor stays at its lowest level and the image gets darker in software.
-    static let monitorLowestLight = 0.1
+    /// The light of an external display at its lowest DDC brightness, as a part of its maximum. An estimate: typical
+    /// external displays have 30–50 nits at their lowest and 300–500 nits at their highest level. Below this light,
+    /// the external display stays at its lowest level and the image gets darker in software.
+    static let externalLowestLight = 0.1
 }
 
 /// How a display makes the light that the brightness slider asks for.
 enum BrightnessControl {
     /// The built-in display: macOS's own brightness value, which already follows the curve. The slider is that value.
     case builtin
-    /// A monitor over DDC: its value is about linear in light output, with software dimming below its lowest level.
-    case monitor
+    /// An external display over DDC: its value is about linear in light output, with software dimming below its lowest level.
+    case external
     /// No brightness control: software dimming only.
     case software
 
@@ -51,11 +51,11 @@ enum BrightnessControl {
         switch self {
         case .builtin:
             // Level 0 turns the built-in display black (macOS fades the image out), so the slider stays just above it.
-            // The brightness keys can still go to 0; then synced monitors also go black.
+            // The brightness keys can still go to 0; then synced external displays also go black.
             return (max(slider, 0.01), 1)
-        case .monitor:
+        case .external:
             let light = BrightnessCurve.light(slider: slider)
-            let lowest = BrightnessCurve.monitorLowestLight
+            let lowest = BrightnessCurve.externalLowestLight
             return light >= lowest ? ((light - lowest) / (1 - lowest), 1) : (0, light / lowest)
         case .software:
             return (nil, BrightnessCurve.light(slider: slider))
@@ -67,8 +67,8 @@ enum BrightnessControl {
         switch self {
         case .builtin:
             return min(max(level ?? 1, 0), 1)
-        case .monitor:
-            let lowest = BrightnessCurve.monitorLowestLight
+        case .external:
+            let lowest = BrightnessCurve.externalLowestLight
             let light = dimming < 1 ? dimming * lowest : lowest + (level ?? 1) * (1 - lowest)
             return BrightnessCurve.slider(light: light)
         case .software:

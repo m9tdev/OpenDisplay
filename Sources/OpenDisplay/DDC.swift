@@ -67,7 +67,7 @@ final class DDCService: @unchecked Sendable {
         var packet: [UInt8] = [0x84, 0x03, vcp, UInt8(value >> 8), UInt8(value & 0xFF), 0]
         packet[5] = Self.checksum(packet[0..<5])
         var ok = false
-        // Some monitors drop the first packet, so send it twice.
+        // Some external displays drop the first packet, so send it twice.
         for _ in 0..<2 {
             usleep(10_000)
             let result = packet.withUnsafeMutableBytes {
@@ -104,8 +104,8 @@ final class DDCService: @unchecked Sendable {
         return nil
     }
 
-    /// The monitor's capabilities string, for example `(prot(monitor)type(LCD)vcp(10 12 14(05 08) 60(0F 11)))`.
-    /// The monitor sends it in parts of up to 32 bytes.
+    /// The external display's capabilities string, for example `(prot(monitor)type(LCD)vcp(10 12 14(05 08) 60(0F 11)))`.
+    /// The external display sends it in parts of up to 32 bytes.
     func capabilities() -> String? {
         guard let writeI2C = PrivateAPI.avServiceWriteI2C, let readI2C = PrivateAPI.avServiceReadI2C else { return nil }
         var text: [UInt8] = []

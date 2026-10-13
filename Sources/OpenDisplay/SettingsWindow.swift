@@ -55,7 +55,7 @@ private struct SettingsView: View {
                 Toggle("Launch at Login", isOn: Binding(get: { launchAtLogin }, set: setLaunchAtLogin))
                 Toggle(isOn: Binding(get: { keysEnabled }, set: setKeysEnabled)) {
                     Text("Brightness and Volume Keys")
-                    Text("Also change monitors: the display under the pointer, and the monitor that plays the sound.")
+                    Text("Also for external displays: the display under the pointer, and the display that plays the sound.")
                 }
                 if keysEnabled, !hasPermission {
                     LabeledContent("Needs Accessibility permission") {

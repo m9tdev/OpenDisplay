@@ -132,7 +132,7 @@ enum DisplayControls {
 
     // MARK: Names
 
-    // From the VESA Monitor Control Command Set (MCCS). Monitors can also use their own values.
+    // From the VESA Monitor Control Command Set (MCCS). External displays can also use their own values.
     // Short, because they are in segmented controls.
 
     static func inputName(_ value: UInt8) -> String {

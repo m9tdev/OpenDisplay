@@ -26,7 +26,7 @@ final class Display: Identifiable {
     /// Software dimming: 1 is the normal image.
     @ObservationIgnored var dimming: Double = 1
 
-    /// The VCP codes the monitor supports, with their allowed values (see `VCP.parse`). `nil` until read.
+    /// The VCP codes the external display supports, with their allowed values (see `VCP.parse`). `nil` until read.
     var capabilities: [UInt8: [UInt8]]?
     /// 0...1. `nil` while we do not know the value yet.
     var contrast: Double?
@@ -40,7 +40,7 @@ final class Display: Identifiable {
         self.isBuiltin = CGDisplayIsBuiltin(id) != 0
     }
 
-    /// Identifies the monitor across reconnects and restarts (the display ID can change).
+    /// Identifies the external display across reconnects and restarts (the display ID can change).
     var stableKey: String {
         "\(CGDisplayVendorNumber(id))-\(CGDisplayModelNumber(id))-\(CGDisplaySerialNumber(id))"
     }
@@ -52,7 +52,7 @@ final class Display: Identifiable {
 
     var brightnessControl: BrightnessControl {
         guard hasHardwareBrightness else { return .software }
-        return isBuiltin ? .builtin : .monitor
+        return isBuiltin ? .builtin : .external
     }
 }
 
@@ -166,7 +166,7 @@ final class DisplayManager {
     // MARK: Brightness
 
     // All brightness sliders follow the macOS curve (see `BrightnessCurve`), so the same slider position gives
-    // about the same light on each display. Below a monitor's lowest level, software dimming makes it darker.
+    // about the same light on each display. Below an external display's lowest level, software dimming makes it darker.
 
     func readBrightness(_ display: Display) {
         display.brightnessError = nil
@@ -190,7 +190,7 @@ final class DisplayManager {
                 if let result, result.max > 0 {
                     display.ddcMax = result.max
                     let level = Double(result.current) / Double(result.max)
-                    display.brightness = BrightnessControl.monitor.slider(level: level, dimming: display.dimming)
+                    display.brightness = BrightnessControl.external.slider(level: level, dimming: display.dimming)
                 } else {
                     // Writes often work when reads do not, so still allow control.
                     display.brightness = 0.5
@@ -222,9 +222,9 @@ final class DisplayManager {
 
     // MARK: Brightness sync
 
-    // A monitor can follow the built-in display's brightness, so the brightness keys and automatic brightness
+    // An external display can follow the built-in display's brightness, so the brightness keys and automatic brightness
     // (light sensor) also work for it. macOS tells us when the built-in brightness changes, with its new target
-    // value, before its fade starts. So the monitor changes at the same time as the built-in display.
+    // value, before its fade starts. So the external display changes at the same time as the built-in display.
 
     @ObservationIgnored private var lastBuiltinBacklight: Float?
     /// Displays we get brightness notifications for. macOS has no tested way to stop them, so register each once.
@@ -288,7 +288,7 @@ final class DisplayManager {
 
     // MARK: Volume
 
-    /// Monitor speakers only: macOS cannot change their volume, but most monitors accept it over DDC.
+    /// External display speakers only: macOS cannot change their volume, but most external displays accept it over DDC.
     func readVolume(_ display: Display) {
         guard let ddc = display.ddc else { return }
         ddc.readLater(vcp: VCP.volume) { [weak display] result in
@@ -423,7 +423,7 @@ final class DisplayManager {
         applyInBackground { DisplayArrangement.setRotation(degrees, for: id) }
     }
 
-    // MARK: Monitor settings (DDC)
+    // MARK: External display settings (DDC)
 
     private func readCapabilities(_ display: Display) {
         // Empty while reading, so a refresh does not start a second read. Nil after a failed read, so the next refresh tries again.
@@ -436,7 +436,7 @@ final class DisplayManager {
     }
 
     /// Reads the values in the Options submenu. The menu calls this when it opens, so they are ready in time.
-    func readMonitorSettings(_ display: Display) {
+    func readDDCSettings(_ display: Display) {
         guard let ddc = display.ddc, let capabilities = display.capabilities else { return }
         if capabilities[VCP.contrast] != nil {
             ddc.readLater(vcp: VCP.contrast) { [weak display] result in
@@ -470,7 +470,7 @@ final class DisplayManager {
         display.ddc?.setLater(vcp: VCP.colorPreset, value: UInt16(preset))
     }
 
-    /// Switches the monitor to another input. If the Mac is not on that input, the display disconnects.
+    /// Switches the external display to another input. If the Mac is not on that input, the display disconnects.
     func setInput(_ display: Display, _ input: UInt8) {
         display.input = input
         display.ddc?.setLater(vcp: VCP.input, value: UInt16(input))

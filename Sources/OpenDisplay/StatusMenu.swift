@@ -61,7 +61,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         manager.refresh()
         update()
         for display in manager.displays where display.isEnabled {
-            manager.readMonitorSettings(display)
+            manager.readDDCSettings(display)
         }
     }
 

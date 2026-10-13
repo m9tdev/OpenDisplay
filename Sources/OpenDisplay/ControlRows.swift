@@ -103,7 +103,7 @@ final class SteppedSliderRowView: MenuRowView {
 
 // MARK: - Segmented control
 
-/// A choice without an order (for example the input of a monitor), as a segmented control.
+/// A choice without an order (for example the input of an external display), as a segmented control.
 final class SegmentedRowView: MenuRowView {
     private let control = NSSegmentedControl()
     private let choices: @MainActor () -> (titles: [String], current: Int?)

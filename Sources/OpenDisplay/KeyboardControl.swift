@@ -2,10 +2,10 @@ import AppKit
 import ApplicationServices
 import CoreAudio
 
-/// Makes the brightness and volume keys work for monitors, like on the built-in display.
+/// Makes the brightness and volume keys work for external displays, like on the built-in display.
 ///
 /// - Brightness keys change the display under the mouse pointer. macOS handles the built-in display itself.
-/// - Volume keys change the monitor's speakers when the monitor is the sound output (macOS cannot).
+/// - Volume keys change the external display's speakers when the external display is the sound output (macOS cannot).
 ///
 /// Catching the keys needs the Accessibility permission.
 @MainActor
@@ -102,8 +102,8 @@ final class KeyboardControl {
 
         switch key {
         case .brightnessUp, .brightnessDown:
-            // The built-in display, and a monitor that follows it: macOS changes the built-in display,
-            // and the sync changes the monitor.
+            // The built-in display, and an external display that follows it: macOS changes the built-in display,
+            // and the sync changes the external display.
             guard let display = displayUnderPointer(), !display.isBuiltin, !manager.isSynced(display),
                   let value = display.brightness else {
                 return Unmanaged.passUnretained(event)
@@ -137,7 +137,7 @@ final class KeyboardControl {
         return manager.displays.first { $0.id == id && $0.isEnabled }
     }
 
-    /// The monitor whose speakers are the current sound output, if any.
+    /// The external display whose speakers are the current sound output, if any.
     private func soundOutputDisplay() -> Display? {
         guard let name = Self.defaultOutputName() else { return nil }
         return manager.displays.first { $0.isEnabled && $0.supportsVolume && (name.hasPrefix($0.name) || $0.name.hasPrefix(name)) }
