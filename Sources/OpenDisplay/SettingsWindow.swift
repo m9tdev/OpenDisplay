@@ -11,7 +11,10 @@ enum SettingsWindow {
 
     static func show(manager: DisplayManager, keyboard: KeyboardControl) {
         if window == nil {
-            let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(manager: manager, keyboard: keyboard)))
+            let hosting = NSHostingController(rootView: SettingsView(manager: manager, keyboard: keyboard))
+            // The window follows the height of the form, so it never needs to scroll.
+            hosting.sizingOptions = [.preferredContentSize]
+            let window = NSWindow(contentViewController: hosting)
             window.title = "OpenDisplay Settings"
             window.styleMask = [.titled, .closable]
             window.isReleasedWhenClosed = false
@@ -23,6 +26,8 @@ enum SettingsWindow {
         forceActivate()
         window?.makeKeyAndOrderFront(nil)
         window?.orderFrontRegardless()
+        // Without this, the first switch gets the keyboard focus and shows a focus ring.
+        window?.makeFirstResponder(nil)
     }
 
     /// `activate(ignoringOtherApps: true)`: deprecated in macOS 14, but the only call that activates an app
@@ -88,6 +93,7 @@ private struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .scrollDisabled(true)
         .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
         .onReceive(recheck) { _ in
