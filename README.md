@@ -80,7 +80,9 @@ scripts/make-release.sh notes.md
 
 This makes a GitHub release of the version in `Resources/Info.plist`, with the built app as a zip and the release notes in `notes.md`. Raise the version first.
 
-To change the app icon, change the geometry in `scripts/make-app-icon.py` and `Sources/OpenDisplay/MenuBarIcon.swift`, then run `scripts/make-app-icon.py`.
+To change the app icon, change the geometry in `scripts/make-app-icon.py` and `Sources/OpenDisplay/MenuBarIcon.swift`, then run `scripts/make-app-icon.py` on a Mac. It makes `Resources/AppIcon.icon`, and compiles it with Apple's `actool` into `Resources/AppIcon.compiled`, which the build copies into the app.
+
+The compiled icon is in the repository because the Linux `actool` (from [nix-apple-dev](https://github.com/m9tdev/nix-apple-dev)) writes an iOS asset catalog for Icon Composer files, also for macOS, and macOS ignores it. When that is fixed, the build will compile the icon itself again, also on Linux.
 
 ## How it works
 
