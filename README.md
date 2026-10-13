@@ -72,14 +72,6 @@ scripts/make-screenshots.sh
 
 This makes the screenshots in `assets/screenshots` again: the menu (short and with all controls) and the Settings window, in light and dark mode. It takes about 30 seconds, and you must not use the mouse or keyboard while it runs. It needs an external display and [Pillow](https://pypi.org/project/pillow/) (`pip3 install pillow`). Afterwards, it restores your settings.
 
-### Build on Linux
-
-```sh
-scripts/build-app-linux.sh --notarize
-```
-
-This builds `OpenDisplay.app` on Linux (for example on your own server, without a Mac) with [nix-apple-dev](https://github.com/m9tdev/nix-apple-dev) (its SDK has the macOS SDK too), signs it with a Developer ID with [rcodesign](https://github.com/indygreg/apple-platform-rs), and notarizes and staples it with an App Store Connect API key. The comment at the top of the script lists what it needs.
-
 ### Releases
 
 ```sh
@@ -90,9 +82,7 @@ This tags the version in `Resources/Info.plist`, with the release notes in `note
 
 To make a notarized build on your own Mac: `SIGN_IDENTITY="Developer ID Application: …" scripts/build-app.sh`, then `scripts/notarize.sh` with `ASC_KEY_ID`, `ASC_ISSUER_ID`, and `ASC_KEY_PATH` set.
 
-To change the app icon, change the geometry in `scripts/make-app-icon.py` and `Sources/OpenDisplay/MenuBarIcon.swift`, then run `scripts/make-app-icon.py` on a Mac. It makes `Resources/AppIcon.icon`, and compiles it with Apple's `actool` into `Resources/AppIcon.compiled`, which the build copies into the app.
-
-The compiled icon is in the repository because the Linux `actool` (from [nix-apple-dev](https://github.com/m9tdev/nix-apple-dev)) writes an iOS asset catalog for Icon Composer files, also for macOS, and macOS ignores it. When that is fixed, the build will compile the icon itself again, also on Linux.
+To change the app icon, change the geometry in `scripts/make-app-icon.py` and `Sources/OpenDisplay/MenuBarIcon.swift`, then run `scripts/make-app-icon.py`. It makes `Resources/AppIcon.icon`, which `scripts/build-app.sh` compiles with Apple's `actool`.
 
 ## How it works
 

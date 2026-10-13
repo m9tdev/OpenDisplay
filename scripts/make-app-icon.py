@@ -1,21 +1,14 @@
 #!/usr/bin/env python3
-"""Make Resources/AppIcon.icon (an Icon Composer document) from the geometry of MenuBarIcon.swift, and compile it
-into Resources/AppIcon.compiled (Assets.car and AppIcon.icns), which the build copies into the app.
-
-Compiling needs Apple's actool, so run this on a Mac. The Linux actool (nix-apple-dev / omarchy-apple-dev) writes an
-iOS asset catalog for .icon files, also with --platform macosx, and macOS ignores it. When that is fixed, the build can
-compile the icon itself again, also on Linux, and Resources/AppIcon.compiled can go.
+"""Make Resources/AppIcon.icon (an Icon Composer document) from the geometry of MenuBarIcon.swift.
 
 The app icon and the menu bar icon have the same shape: the menu bar icon in points, scaled up so the
 screen is 720 pt wide on the 1024 pt canvas. If you change the geometry here, change MenuBarIcon.swift too.
+scripts/build-app.sh compiles the icon with Apple's actool.
 """
 import json
 import math
 import os
 import shutil
-import subprocess
-import sys
-import tempfile
 
 ICON = os.path.join(os.path.dirname(__file__), "..", "Resources", "AppIcon.icon")
 
@@ -106,16 +99,3 @@ with open(os.path.join(ICON, "icon.json"), "w") as f:
     json.dump(document, f, indent=2)
 print("Made", os.path.normpath(ICON))
 
-# Compile the icon with Apple's actool (actool needs absolute paths).
-COMPILED = os.path.join(os.path.dirname(__file__), "..", "Resources", "AppIcon.compiled")
-if sys.platform != "darwin":
-    sys.exit("Compile the icon on a Mac: Apple's actool is needed (see the comment at the top).")
-os.makedirs(COMPILED, exist_ok=True)
-with tempfile.TemporaryDirectory() as out:
-    subprocess.run(["xcrun", "actool", os.path.abspath(ICON), "--compile", out, "--platform", "macosx",
-                    "--minimum-deployment-target", "14.0", "--app-icon", "AppIcon",
-                    "--output-partial-info-plist", os.path.join(out, "partial.plist")],
-                   check=True, stdout=subprocess.DEVNULL)
-    for name in ["Assets.car", "AppIcon.icns"]:
-        shutil.copy(os.path.join(out, name), os.path.join(COMPILED, name))
-print("Compiled", os.path.normpath(COMPILED))

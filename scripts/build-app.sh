@@ -9,10 +9,11 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$(swift build -c release --show-bin-path)/OpenDisplay" "$app/Contents/MacOS/"
 cp Resources/Info.plist "$app/Contents/"
-# The compiled app icon: Assets.car (Liquid Glass, macOS 26 and later) and AppIcon.icns (earlier versions).
-# They are in the repository, so builds without Apple's actool (on Linux) get the same icon.
-# scripts/make-app-icon.py makes them from Resources/AppIcon.icon.
-cp Resources/AppIcon.compiled/Assets.car Resources/AppIcon.compiled/AppIcon.icns "$app/Contents/Resources/"
+# The icon is an Icon Composer document (scripts/make-app-icon.py makes it). actool makes Assets.car (Liquid Glass,
+# macOS 26 and later) and AppIcon.icns (earlier versions). actool needs absolute paths.
+xcrun actool "$PWD/Resources/AppIcon.icon" --compile "$PWD/$app/Contents/Resources" --platform macosx \
+    --minimum-deployment-target 14.0 --app-icon AppIcon \
+    --output-partial-info-plist "$(mktemp)" > /dev/null
 # Sign with a stable certificate if there is one, so macOS keeps permissions (Accessibility) after a rebuild.
 # Set SIGN_IDENTITY to choose one. Without a certificate, sign ad hoc.
 # For a release, SIGN_IDENTITY is the Developer ID: then also sign with the hardened runtime and a secure timestamp,
