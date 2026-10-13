@@ -15,8 +15,13 @@ cp Resources/Info.plist "$app/Contents/"
 cp Resources/AppIcon.compiled/Assets.car Resources/AppIcon.compiled/AppIcon.icns "$app/Contents/Resources/"
 # Sign with a stable certificate if there is one, so macOS keeps permissions (Accessibility) after a rebuild.
 # Set SIGN_IDENTITY to choose one. Without a certificate, sign ad hoc.
+# For a release, SIGN_IDENTITY is the Developer ID: then also sign with the hardened runtime and a secure timestamp,
+# which notarization needs (see scripts/notarize.sh).
 identity="${SIGN_IDENTITY:-$(security find-identity -v -p codesigning | awk -F'"' '/Apple Development/ { print $2; exit }')}"
-codesign --force --sign "${identity:--}" "$app"
+case "$identity" in
+    "Developer ID Application:"*) codesign --force --options runtime --timestamp --sign "$identity" "$app" ;;
+    *) codesign --force --sign "${identity:--}" "$app" ;;
+esac
 echo "Built $app (signed: ${identity:-ad hoc})"
 
 if [ "${1:-}" = "--install" ]; then
