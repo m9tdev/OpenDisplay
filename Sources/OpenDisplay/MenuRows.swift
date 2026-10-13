@@ -447,6 +447,8 @@ final class SliderRowView: MenuRowView {
         self.manager = manager
         self.display = display
         super.init(height: Self.plainHeight)
+        // Like the other rows, so the row under the pointer always shows.
+        highlightsOnHover = true
 
         caption.stringValue = switch kind {
         case .brightness: "Brightness"

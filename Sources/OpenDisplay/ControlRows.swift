@@ -28,6 +28,8 @@ final class SteppedSliderRowView: MenuRowView {
         self.choices = choices
         self.apply = apply
         super.init(height: 44)
+        // Like the other rows, so the row under the pointer always shows.
+        highlightsOnHover = true
 
         label.stringValue = text
         for caption in [label, valueLabel] {
@@ -116,6 +118,8 @@ final class SegmentedRowView: MenuRowView {
     ) {
         self.choices = choices
         super.init(height: 34)
+        // Like the other rows, so the row under the pointer always shows.
+        highlightsOnHover = true
 
         let icon = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: label)!)
         icon.contentTintColor = .secondaryLabelColor
