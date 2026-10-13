@@ -45,6 +45,15 @@ Each display shows only brightness and volume. Click a display to show all its c
 - macOS 14 or later. Some parts need a later version.
 - External displays that support DDC/CI for hardware brightness, volume, and input. Other displays get software brightness only.
 
+## Install
+
+1. Download `OpenDisplay-VERSION.zip` from the [latest release](https://github.com/m9tdev/OpenDisplay/releases/latest).
+2. Open the zip, and move `OpenDisplay.app` to your Applications folder.
+3. Open OpenDisplay. macOS shows a warning, because the app is not notarized by Apple. Click **Done**.
+4. In System Settings → Privacy & Security, click **Open Anyway** next to the message about OpenDisplay, and confirm. You have to do this only once.
+
+OpenDisplay is a menu bar app: it has no Dock icon. Look for the display icon in the menu bar.
+
 ## Build and install
 
 ```sh
@@ -62,6 +71,14 @@ scripts/make-screenshots.sh
 ```
 
 This makes the screenshots in `assets/screenshots` again: the menu (short and with all controls) and the Settings window, in light and dark mode. It takes about 30 seconds, and you must not use the mouse or keyboard while it runs. It needs an external display and [Pillow](https://pypi.org/project/pillow/) (`pip3 install pillow`). Afterwards, it restores your settings.
+
+### Releases
+
+```sh
+scripts/make-release.sh notes.md
+```
+
+This makes a GitHub release of the version in `Resources/Info.plist`, with the built app as a zip and the release notes in `notes.md`. Raise the version first.
 
 To change the app icon, change the geometry in `scripts/make-app-icon.py` and `Sources/OpenDisplay/MenuBarIcon.swift`, then run `scripts/make-app-icon.py`.
 
