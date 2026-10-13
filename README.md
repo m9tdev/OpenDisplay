@@ -49,8 +49,8 @@ Each display shows only brightness and volume. Click a display to show all its c
 
 1. Download `OpenDisplay-VERSION.zip` from the [latest release](https://github.com/m9tdev/OpenDisplay/releases/latest).
 2. Open the zip, and move `OpenDisplay.app` to your Applications folder.
-3. Open OpenDisplay. macOS shows a warning, because the app is not notarized by Apple. Click **Done**.
-4. In System Settings → Privacy & Security, click **Open Anyway** next to the message about OpenDisplay, and confirm. You have to do this only once.
+3. Open OpenDisplay. The app is signed and notarized by Apple, so it opens without a warning.
+4. For the brightness and volume keys, open Settings (⌘,) in the menu, and click **Allow…** to give OpenDisplay the Accessibility permission.
 
 OpenDisplay is a menu bar app: it has no Dock icon. Look for the display icon in the menu bar.
 
