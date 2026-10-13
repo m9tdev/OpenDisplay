@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key>
-	<string>dev.m9t.opendisplay</string>
+	<string>dev.m9t.OpenDisplay</string>
 	<key>CFBundleName</key>
 	<string>OpenDisplay</string>
 	<key>CFBundleDisplayName</key>

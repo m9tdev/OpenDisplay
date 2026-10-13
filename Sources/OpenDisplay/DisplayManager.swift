@@ -326,7 +326,7 @@ final class DisplayManager {
 
     /// Displays with an on/off change in progress. `refresh` must not undo their new state.
     @ObservationIgnored private var changing: Set<CGDirectDisplayID> = []
-    @ObservationIgnored let configQueue = DispatchQueue(label: "dev.m9t.opendisplay.display-config")
+    @ObservationIgnored let configQueue = DispatchQueue(label: "dev.m9t.OpenDisplay.display-config")
 
     /// Shows the new state immediately, then applies it after the menu animation.
     /// Applying blocks until macOS has changed the display setup, so it runs off the main thread.

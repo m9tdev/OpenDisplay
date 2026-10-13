@@ -5,7 +5,7 @@ import IOKit
 /// One external display that answers DDC/CI over an IOAVService.
 final class DDCService: @unchecked Sendable {
     let service: CFTypeRef
-    private let queue = DispatchQueue(label: "dev.m9t.opendisplay.ddc")
+    private let queue = DispatchQueue(label: "dev.m9t.OpenDisplay.ddc")
     private let lock = NSLock()
     /// Newest value to write for each VCP code.
     private var pending: [UInt8: UInt16] = [:]
