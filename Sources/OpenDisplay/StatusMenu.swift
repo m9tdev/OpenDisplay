@@ -27,6 +27,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         super.init()
         statusItem.button?.image = MenuBarIcon.image()
         menu.delegate = self
+        // All items stay enabled. With automatic enabling, the rows (items with a view but no action) are
+        // disabled, and NSMenu never highlights them, so their hover highlights (see `Hover`) would not show.
+        menu.autoenablesItems = false
         // Normally nil (the system appearance). The `--appearance` debug option sets it for this app only.
         menu.appearance = NSApp.appearance
         menu.minimumWidth = Layout.width
@@ -79,6 +82,16 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         openCount += 1
         menuScreen = iconScreen()
         menuEnabledDisplays = enabledDisplays()
+    }
+
+    private var highlightedItem: NSMenuItem?
+
+    /// The menu highlights another item when the pointer moves to it or leaves the menu. Redraw both items,
+    /// so their rows show the hover highlight of the new pointer position (see `Hover`).
+    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        Hover.redraw(highlightedItem)
+        Hover.redraw(item)
+        highlightedItem = item
     }
 
     func menuDidClose(_ menu: NSMenu) {

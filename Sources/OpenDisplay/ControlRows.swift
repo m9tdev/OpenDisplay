@@ -163,7 +163,6 @@ final class CapsuleSegmentedControl: NSView {
     private var selected: Int?
     /// The horizontal position of the selection, in segments (1.5 is halfway between the second and third).
     private var position: CGFloat = 0
-    private var hovered: Int?
     private var pressed: Int?
     private var animation: CADisplayLink?
     private var animationStart: (position: CGFloat, time: CFTimeInterval) = (0, 0)
@@ -248,6 +247,7 @@ final class CapsuleSegmentedControl: NSView {
         NSBezierPath(roundedRect: bounds, xRadius: bounds.height / 2, yRadius: bounds.height / 2).fill()
 
         // A light highlight under the mouse, and a darker one while pressed.
+        let hovered = Hover.pointer(in: self).flatMap { index(at: $0) }
         if let index = pressed ?? hovered, index != selected {
             NSColor.labelColor.withAlphaComponent(pressed != nil ? 0.10 : 0.05).setFill()
             let rect = segmentRect(at: CGFloat(index))
@@ -285,7 +285,10 @@ final class CapsuleSegmentedControl: NSView {
     // MARK: Mouse
 
     private func index(at event: NSEvent) -> Int? {
-        let point = convert(event.locationInWindow, from: nil)
+        index(at: convert(event.locationInWindow, from: nil))
+    }
+
+    private func index(at point: NSPoint) -> Int? {
         guard bounds.contains(point), !titles.isEmpty else { return nil }
         let edges = edges
         return (0..<titles.count).first { point.x < edges[$0 + 1] } ?? titles.count - 1
@@ -297,15 +300,10 @@ final class CapsuleSegmentedControl: NSView {
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
     }
 
-    override func mouseMoved(with event: NSEvent) { setHovered(index(at: event)) }
-    override func mouseEntered(with event: NSEvent) { setHovered(index(at: event)) }
-    override func mouseExited(with event: NSEvent) { setHovered(nil) }
-
-    private func setHovered(_ index: Int?) {
-        guard index != hovered else { return }
-        hovered = index
-        needsDisplay = true
-    }
+    // The hover highlight is worked out when the control draws (see `Hover`), so only redraw.
+    override func mouseMoved(with event: NSEvent) { Hover.redraw(enclosingMenuItem) }
+    override func mouseEntered(with event: NSEvent) { Hover.redraw(enclosingMenuItem) }
+    override func mouseExited(with event: NSEvent) { Hover.redraw(enclosingMenuItem) }
 
     override func mouseDown(with event: NSEvent) {
         pressed = index(at: event)
@@ -328,7 +326,6 @@ final class CapsuleSegmentedControl: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        hovered = nil
         pressed = nil
     }
 

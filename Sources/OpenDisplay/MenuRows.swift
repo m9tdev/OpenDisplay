@@ -47,6 +47,32 @@ func keepUpdated<Owner: AnyObject>(_ owner: Owner, _ apply: @escaping @MainActor
     }
 }
 
+// MARK: - Hover
+
+/// Hover highlights. They are worked out when a view draws, not stored, so they cannot stay after the pointer
+/// leaves. (In a menu, macOS can drop the "mouse exited" event of a view, for example when the pointer moves fast.)
+///
+/// A view is under the pointer when its menu item is highlighted (NSMenu tracks that reliably) and the pointer
+/// is inside the view (several rows can share one item, see `RowStackView`). The views redraw when the menu
+/// highlights another item (`StatusMenu`) and when the pointer moves inside an item.
+@MainActor
+enum Hover {
+    /// The pointer position in a view, or nil if the pointer is not over the view's menu item.
+    static func pointer(in view: NSView) -> NSPoint? {
+        guard view.enclosingMenuItem?.isHighlighted == true, let window = view.window else { return nil }
+        return view.convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+    }
+
+    /// Redraws the view of a menu item and all views in it.
+    static func redraw(_ item: NSMenuItem?) {
+        func redraw(_ view: NSView) {
+            view.needsDisplay = true
+            view.subviews.forEach(redraw)
+        }
+        item?.view.map(redraw)
+    }
+}
+
 // MARK: - Base row
 
 /// The base of all custom rows: a height, an optional hover highlight, and a height animation.
@@ -57,15 +83,12 @@ class MenuRowView: NSView {
     var highlightsOnHover = false {
         didSet {
             guard highlightsOnHover != oldValue else { return }
-            if !highlightsOnHover { isHovered = false }
+            needsDisplay = true
             updateTrackingAreas()
         }
     }
 
     private var visible: Bool?
-    private var isHovered = false {
-        didSet { if isHovered != oldValue { needsDisplay = true } }
-    }
     private var animation: CADisplayLink?
     private var animationStart: (height: CGFloat, alpha: CGFloat, time: CFTimeInterval) = (0, 0, 0)
     private static let duration: CFTimeInterval = 0.2
@@ -84,20 +107,16 @@ class MenuRowView: NSView {
         super.updateTrackingAreas()
         trackingAreas.forEach(removeTrackingArea)
         guard highlightsOnHover else { return }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
     }
 
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        // The menu closed or opened: the mouse is not over the row yet.
-        isHovered = false
-    }
+    // The pointer moved to another row in the same menu item.
+    override func mouseEntered(with event: NSEvent) { Hover.redraw(enclosingMenuItem) }
+    override func mouseExited(with event: NSEvent) { Hover.redraw(enclosingMenuItem) }
+    override func mouseMoved(with event: NSEvent) { Hover.redraw(enclosingMenuItem) }
 
     override func draw(_ dirtyRect: NSRect) {
-        guard highlightsOnHover, isHovered else { return }
+        guard highlightsOnHover, let pointer = Hover.pointer(in: self), visibleRect.contains(pointer) else { return }
         NSColor.labelColor.withAlphaComponent(0.08).setFill()
         let rect = bounds.insetBy(dx: Layout.highlightInset, dy: 0)
         NSBezierPath(roundedRect: rect, xRadius: Layout.highlightRadius, yRadius: Layout.highlightRadius).fill()
