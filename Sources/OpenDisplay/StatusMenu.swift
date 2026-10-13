@@ -25,7 +25,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         self.manager = manager
         self.keyboard = keyboard
         super.init()
-        statusItem.button?.image = NSImage(systemSymbolName: "display", accessibilityDescription: "OpenDisplay")
+        statusItem.button?.image = MenuBarIcon.image()
         menu.delegate = self
         menu.minimumWidth = Layout.width
         statusItem.menu = menu
