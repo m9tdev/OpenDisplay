@@ -78,7 +78,7 @@ enum DisplayControls {
                 symbol: "cable.connector", label: "Input", visible: visible,
                 choices: {
                     let inputs = display.capabilities?[VCP.input] ?? []
-                    return (inputs.map(inputName), display.input.flatMap { inputs.firstIndex(of: $0) })
+                    return (inputs.map { inputName($0, vendor: CGDisplayVendorNumber(display.id)) }, display.input.flatMap { inputs.firstIndex(of: $0) })
                 },
                 apply: { index in
                     let inputs = display.capabilities?[VCP.input] ?? []
@@ -135,7 +135,14 @@ enum DisplayControls {
     // From the VESA Monitor Control Command Set (MCCS). External displays can also use their own values.
     // Short, because they are in segmented controls.
 
-    static func inputName(_ value: UInt8) -> String {
+    /// Codes above 0x12 are not in the standard, so each brand uses its own. These are the ones we know.
+    private static let vendorInputNames: [UInt32: [UInt8: String]] = [
+        // BenQ (for example the RD280U): 0x13 is the USB-C input.
+        2513: [0x13: "USB-C"],
+    ]
+
+    static func inputName(_ value: UInt8, vendor: UInt32) -> String {
+        if let name = vendorInputNames[vendor]?[value] { return name }
         let names: [UInt8: String] = [
             0x01: "VGA", 0x02: "VGA 2", 0x03: "DVI", 0x04: "DVI 2",
             0x0F: "DP", 0x10: "DP 2", 0x11: "HDMI", 0x12: "HDMI 2", 0x1B: "USB-C",
