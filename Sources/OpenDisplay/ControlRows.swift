@@ -105,9 +105,8 @@ final class SteppedSliderRowView: MenuRowView {
 
 /// A choice without an order (for example the input of an external display), as a segmented control.
 final class SegmentedRowView: MenuRowView {
-    private let control = NSSegmentedControl()
+    private let control = CapsuleSegmentedControl()
     private let choices: @MainActor () -> (titles: [String], current: Int?)
-    private let apply: @MainActor (Int) -> Void
 
     init(
         symbol: String, label: String,
@@ -116,17 +115,12 @@ final class SegmentedRowView: MenuRowView {
         apply: @escaping @MainActor (Int) -> Void
     ) {
         self.choices = choices
-        self.apply = apply
-        super.init(height: 30)
+        super.init(height: 34)
 
         let icon = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: label)!)
         icon.contentTintColor = .secondaryLabelColor
         icon.toolTip = label
-        control.controlSize = .small
-        control.segmentDistribution = .fillEqually
-        control.trackingMode = .selectOne
-        control.target = self
-        control.action = #selector(chose)
+        control.onSelect = apply
         control.setAccessibilityLabel(label)
         control.toolTip = label
 
@@ -140,24 +134,209 @@ final class SegmentedRowView: MenuRowView {
             control.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.controlInset),
             control.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.trailingInset),
             control.centerYAnchor.constraint(equalTo: centerYAnchor),
+            control.heightAnchor.constraint(equalToConstant: CapsuleSegmentedControl.height),
         ])
 
         keepUpdated(self) { view in
             view.setVisible(visible())
             let (titles, current) = view.choices()
-            if view.control.segmentCount != titles.count { view.control.segmentCount = titles.count }
-            for (index, title) in titles.enumerated() {
-                view.control.setLabel(title, forSegment: index)
-            }
-            view.control.selectedSegment = current ?? -1
+            view.control.titles = titles
+            view.control.select(current)
         }
     }
 
     required init?(coder: NSCoder) { fatalError() }
+}
 
-    @objc private func chose() {
-        apply(control.selectedSegment)
+/// A segmented control in the style of macOS 26 and later: a capsule track without dividers, and a raised
+/// capsule for the selected choice that slides to a new choice. AppKit draws `NSSegmentedControl` in an
+/// older style inside menus, so this view draws the parts itself (like `MenuSlider`).
+final class CapsuleSegmentedControl: NSView {
+    static let height: CGFloat = 26
+
+    var titles: [String] = [] {
+        didSet { if titles != oldValue { needsDisplay = true } }
     }
+    /// Called with the index of the choice that the user clicked.
+    var onSelect: (@MainActor (Int) -> Void)?
+
+    private var selected: Int?
+    /// The horizontal position of the selection, in segments (1.5 is halfway between the second and third).
+    private var position: CGFloat = 0
+    private var hovered: Int?
+    private var pressed: Int?
+    private var animation: CADisplayLink?
+    private var animationStart: (position: CGFloat, time: CFTimeInterval) = (0, 0)
+    private static let duration: CFTimeInterval = 0.25
+    private static let inset: CGFloat = 2
+
+    override var isFlipped: Bool { true }
+
+    /// Shows a choice as selected. Animates when the menu is open and a choice was already selected.
+    func select(_ index: Int?) {
+        guard index != selected else { return }
+        let animate = selected != nil && index != nil && MenuState.isOpen
+        selected = index
+        animation?.invalidate()
+        animation = nil
+        guard let index else { return needsDisplay = true }
+        guard animate, let link = (window?.screen ?? NSScreen.main)?.displayLink(target: self, selector: #selector(step(_:))) else {
+            position = CGFloat(index)
+            needsDisplay = true
+            return
+        }
+        animationStart = (position, CACurrentMediaTime())
+        // Common modes, so the link also runs while the menu tracks the mouse.
+        link.add(to: .main, forMode: .common)
+        animation = link
+    }
+
+    @objc private func step(_ link: CADisplayLink) {
+        guard let selected else { return }
+        let t = min((link.targetTimestamp - animationStart.time) / Self.duration, 1)
+        // Ease out, like a spring that settles: fast at the start, slow at the end.
+        let eased = 1 - pow(1 - t, 3)
+        position = animationStart.position + (CGFloat(selected) - animationStart.position) * eased
+        needsDisplay = true
+        if t >= 1 {
+            animation?.invalidate()
+            animation = nil
+        }
+    }
+
+    // MARK: Drawing
+
+    private static let font = NSFont.systemFont(ofSize: NSFont.systemFontSize(for: .small) + 1)
+
+    /// The left edge of each segment, and the right edge of the last one. Each segment is as wide as its
+    /// title needs, plus an equal part of the free space, so long titles ("Standard") fit.
+    private var edges: [CGFloat] {
+        let widths = titles.map { ($0 as NSString).size(withAttributes: [.font: Self.font]).width }
+        let available = bounds.width - 2 * Self.inset
+        let free = max(available - widths.reduce(0, +), 0) / CGFloat(max(titles.count, 1))
+        var x = Self.inset
+        var edges = [x]
+        for width in widths {
+            x += width + free
+            edges.append(x)
+        }
+        return edges
+    }
+
+    /// The rect of a segment. A position between two segments (while the selection slides) gives a rect
+    /// between them, with an interpolated width.
+    private func segmentRect(at position: CGFloat) -> NSRect {
+        let edges = edges
+        guard edges.count > 1 else { return .zero }
+        let index = min(max(Int(position.rounded(.down)), 0), edges.count - 2)
+        let next = min(index + 1, edges.count - 2)
+        let fraction = position - CGFloat(index)
+        let left = edges[index] + (edges[next] - edges[index]) * fraction
+        let right = edges[index + 1] + (edges[next + 1] - edges[index + 1]) * fraction
+        return NSRect(x: left, y: Self.inset, width: right - left, height: bounds.height - 2 * Self.inset)
+    }
+
+    private var isDark: Bool {
+        // Menus use the vibrant appearances.
+        let match = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua, .vibrantLight, .vibrantDark])
+        return match == .darkAqua || match == .vibrantDark
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        // The track.
+        NSColor.labelColor.withAlphaComponent(isDark ? 0.10 : 0.06).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: bounds.height / 2, yRadius: bounds.height / 2).fill()
+
+        // A light highlight under the mouse, and a darker one while pressed.
+        if let index = pressed ?? hovered, index != selected {
+            NSColor.labelColor.withAlphaComponent(pressed != nil ? 0.10 : 0.05).setFill()
+            let rect = segmentRect(at: CGFloat(index))
+            NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2).fill()
+        }
+
+        // The raised capsule of the selected choice.
+        if selected != nil {
+            let rect = segmentRect(at: position)
+            let pill = NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2)
+            NSGraphicsContext.saveGraphicsState()
+            let shadow = NSShadow()
+            shadow.shadowColor = NSColor.black.withAlphaComponent(isDark ? 0.35 : 0.15)
+            shadow.shadowBlurRadius = 3
+            shadow.shadowOffset = NSSize(width: 0, height: -1)
+            shadow.set()
+            (isDark ? NSColor.white.withAlphaComponent(0.22) : NSColor.white).setFill()
+            pill.fill()
+            NSGraphicsContext.restoreGraphicsState()
+        }
+
+        // The titles, centered in their segments.
+        for (index, title) in titles.enumerated() {
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: Self.font,
+                .foregroundColor: index == selected ? NSColor.labelColor : NSColor.secondaryLabelColor,
+            ]
+            let size = (title as NSString).size(withAttributes: attributes)
+            let rect = segmentRect(at: CGFloat(index))
+            let origin = NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2)
+            (title as NSString).draw(in: NSRect(origin: origin, size: size).insetBy(dx: -1, dy: 0), withAttributes: attributes)
+        }
+    }
+
+    // MARK: Mouse
+
+    private func index(at event: NSEvent) -> Int? {
+        let point = convert(event.locationInWindow, from: nil)
+        guard bounds.contains(point), !titles.isEmpty else { return nil }
+        let edges = edges
+        return (0..<titles.count).first { point.x < edges[$0 + 1] } ?? titles.count - 1
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
+    }
+
+    override func mouseMoved(with event: NSEvent) { setHovered(index(at: event)) }
+    override func mouseEntered(with event: NSEvent) { setHovered(index(at: event)) }
+    override func mouseExited(with event: NSEvent) { setHovered(nil) }
+
+    private func setHovered(_ index: Int?) {
+        guard index != hovered else { return }
+        hovered = index
+        needsDisplay = true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        pressed = index(at: event)
+        needsDisplay = true
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        pressed = index(at: event)
+        needsDisplay = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        let index = index(at: event)
+        pressed = nil
+        needsDisplay = true
+        guard let index, index != selected else { return }
+        select(index)
+        onSelect?(index)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        hovered = nil
+        pressed = nil
+    }
+
+    // MARK: Accessibility
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .radioGroup }
+    override func accessibilityValue() -> Any? { selected.map { titles[$0] } }
 }
 
 // MARK: - Toggle and action rows
