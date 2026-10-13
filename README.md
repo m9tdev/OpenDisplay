@@ -78,7 +78,7 @@ This makes the screenshots in `assets/screenshots` again: the menu (short and wi
 scripts/build-app-linux.sh --notarize
 ```
 
-This builds `OpenDisplay.app` on Linux with [nix-apple-dev](https://github.com/m9tdev/nix-apple-dev) (its SDK has the macOS SDK too), signs it with a Developer ID with [rcodesign](https://github.com/indygreg/apple-platform-rs), and notarizes and staples it with an App Store Connect API key. The comment at the top of the script lists what it needs.
+This builds `OpenDisplay.app` on Linux (for example on your own server, without a Mac) with [nix-apple-dev](https://github.com/m9tdev/nix-apple-dev) (its SDK has the macOS SDK too), signs it with a Developer ID with [rcodesign](https://github.com/indygreg/apple-platform-rs), and notarizes and staples it with an App Store Connect API key. The comment at the top of the script lists what it needs.
 
 ### Releases
 
@@ -86,7 +86,9 @@ This builds `OpenDisplay.app` on Linux with [nix-apple-dev](https://github.com/m
 scripts/make-release.sh notes.md
 ```
 
-This tags the version in `Resources/Info.plist`, with the release notes in `notes.md` as the tag message, and pushes the tag. Raise the version first. The [Release workflow](.github/workflows/release.yml) then builds, signs, and notarizes the app on a self-hosted runner with `scripts/build-app-linux.sh`, and publishes the GitHub release. The signing and notary keys are secrets of the `release` environment on GitHub, which only `v*` tags can use.
+This tags the version in `Resources/Info.plist`, with the release notes in `notes.md` as the tag message, and pushes the tag. Raise the version first. The [Release workflow](.github/workflows/release.yml) then builds the app on a GitHub-hosted macOS runner (Xcode 27), signs it with the Developer ID, notarizes it (`scripts/notarize.sh`), and publishes the GitHub release. The signing and notary keys are secrets of the `release` environment on GitHub, which only `v*` tags can use.
+
+To make a notarized build on your own Mac: `SIGN_IDENTITY="Developer ID Application: …" scripts/build-app.sh`, then `scripts/notarize.sh` with `ASC_KEY_ID`, `ASC_ISSUER_ID`, and `ASC_KEY_PATH` set.
 
 To change the app icon, change the geometry in `scripts/make-app-icon.py` and `Sources/OpenDisplay/MenuBarIcon.swift`, then run `scripts/make-app-icon.py` on a Mac. It makes `Resources/AppIcon.icon`, and compiles it with Apple's `actool` into `Resources/AppIcon.compiled`, which the build copies into the app.
 

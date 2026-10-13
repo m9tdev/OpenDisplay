@@ -1,10 +1,9 @@
-# Builds, signs, and notarizes OpenDisplay on the self-hosted runner on brick01 (Linux, nix-apple-dev), and
-# publishes the GitHub release for the tag. scripts/make-release.sh makes the tag, with the release notes as its
-# message.
+# Builds, signs, and notarizes OpenDisplay on a GitHub-hosted macOS runner (Xcode 27), and publishes the GitHub
+# release for the tag. scripts/make-release.sh makes the tag, with the release notes as its message.
 #
-# The repository is public, and this runs on our own server with the signing secrets. So it runs only for v* tags
-# (and manual starts on a tag), never for pull requests. The secrets are in the "release" environment, which
-# GitHub allows only for v* tags.
+# It runs only for v* tags (and manual starts on a tag), never for pull requests. The signing and notary keys are
+# secrets of the "release" environment, which GitHub allows only for v* tags. Each secret is given only to the step
+# that needs it.
 name: Release
 
 on:
@@ -13,19 +12,25 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: release
+  # One group per tag: runs for the same tag wait for each other; runs for other tags do not cancel them.
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   release:
-    runs-on: [self-hosted, brick01-apple]
+    # Xcode 27 with the macOS 27 SDK (public preview image, Apple silicon).
+    runs-on: xcode-27
     environment: release
-    timeout-minutes: 30
+    timeout-minutes: 60
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Check the tag and the version
         run: |
@@ -33,23 +38,56 @@ jobs:
             refs/tags/v*) ;;
             *) echo "Run this on a v* tag, not on $GITHUB_REF." >&2; exit 1 ;;
           esac
-          version="$(python3 -c 'import plistlib; print(plistlib.load(open("Resources/Info.plist", "rb"))["CFBundleShortVersionString"])')"
+          version="$(plutil -extract CFBundleShortVersionString raw Resources/Info.plist)"
           if [ "v$version" != "$GITHUB_REF_NAME" ]; then
             echo "The tag is $GITHUB_REF_NAME, but Resources/Info.plist has version $version." >&2
             exit 1
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
+          xcodebuild -version
 
-      - name: Build, sign, and notarize
+      - name: Put the Developer ID in a temporary keychain
         env:
           DEVELOPER_ID_KEY_PEM: ${{ secrets.DEVELOPER_ID_KEY_PEM }}
           DEVELOPER_ID_CERT_PEM: ${{ secrets.DEVELOPER_ID_CERT_PEM }}
+        run: |
+          : "${DEVELOPER_ID_KEY_PEM:?The secret DEVELOPER_ID_KEY_PEM is missing}" "${DEVELOPER_ID_CERT_PEM:?The secret DEVELOPER_ID_CERT_PEM is missing}"
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password="$(uuidgen)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          # The key and the certificate as a .p12, only for the import.
+          dir="$(mktemp -d)"
+          (umask 077
+            printf '%s\n' "$DEVELOPER_ID_KEY_PEM" > "$dir/key.pem"
+            printf '%s\n' "$DEVELOPER_ID_CERT_PEM" > "$dir/cert.pem"
+            # macOS openssl (LibreSSL): Homebrew OpenSSL 3 writes .p12 files that security cannot import.
+            /usr/bin/openssl pkcs12 -export -inkey "$dir/key.pem" -in "$dir/cert.pem" -out "$dir/id.p12" -passout "pass:$password")
+          security import "$dir/id.p12" -k "$keychain" -P "$password" -T /usr/bin/codesign
+          rm -rf "$dir"
+          # The intermediate certificate of Developer ID (G2), so codesign can build the chain to Apple's root.
+          curl -fsSL https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer -o "$RUNNER_TEMP/DeveloperIDG2CA.cer"
+          security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$keychain"
+          # Let codesign use the key without a prompt, and search this keychain first.
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          identity="$(security find-identity -v -p codesigning "$keychain" | awk -F'"' '/Developer ID Application/ { print $2; exit }')"
+          [ -n "$identity" ] || { echo "No Developer ID Application identity in the keychain." >&2; exit 1; }
+          echo "SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+
+      - name: Build and sign
+        run: scripts/build-app.sh
+
+      - name: Notarize
+        env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
-          # The repository variable APPLE_DEV_FLAKE can point to another flake, for example a local checkout.
-          APPLE_DEV_FLAKE: ${{ vars.APPLE_DEV_FLAKE || 'github:m9tdev/nix-apple-dev' }}
-        run: scripts/build-app-linux.sh --notarize
+        run: |
+          : "${ASC_KEY_P8:?The secret ASC_KEY_P8 is missing}"
+          scripts/notarize.sh
+          spctl --assess --type execute --verbose=2 build/OpenDisplay.app
 
       - name: Publish the release
         env:
@@ -57,9 +95,9 @@ jobs:
         run: |
           # The checkout has the tag without its message, so fetch the annotated tag: its message is the release notes.
           git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
-          # Without the tag's signature (tags can be signed), which git puts after the message.
-          git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "$GITHUB_REF_NAME" \
-            | sed '/^-----BEGIN \(SSH\|PGP\) SIGNATURE-----$/,$d' > build/notes.md
+          # The message as written, without the tag's signature (tags can be signed), which git puts after it.
+          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" \
+            | sed '/^-----BEGIN .*SIGNATURE-----$/,$d' > build/notes.md
           zip="build/OpenDisplay-$VERSION.zip"
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
             # A run again for the same tag: replace the zip.
@@ -67,3 +105,7 @@ jobs:
           else
             gh release create "$GITHUB_REF_NAME" "$zip" --verify-tag --title "OpenDisplay $VERSION" --notes-file build/notes.md
           fi
+
+      - name: Remove the temporary keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
