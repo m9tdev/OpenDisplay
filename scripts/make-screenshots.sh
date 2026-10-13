@@ -52,11 +52,12 @@ menu() {
     open "$app" --args --appearance "$2" --backdrop --open-menu 2
     sleep 4
     set -- "$1" "$2" $("$helper" window 101)
-    x=$3 y=$4 w=$5 h=$6
-    # The area around the menu, over the backdrop. cutout-menu.py removes the backdrop.
-    screencapture -x -R "$((x - 40)),$((y - 30)),$((w + 80)),$((h + 70))" "$tmp/$1.png"
-    [ "$2" = dark ] && dark=1 || dark=0
-    python3 scripts/cutout-menu.py "$tmp/$1.png" "$out/$1.png" "$scale" "$dark"
+    x=$3 y=$4 w=$5 h=$6 id=$7
+    # Two captures of the open menu: the window (system margins and shadow, but gray glass), and the area
+    # around it over the backdrop (the right glass). compose-menu.py puts the inside of the second in the first.
+    screencapture -x -l "$id" "$tmp/$1-window.png"
+    screencapture -x -R "$((x - 40)),$((y - 30)),$((w + 80)),$((h + 70))" "$tmp/$1-area.png"
+    python3 scripts/compose-menu.py "$tmp/$1-window.png" "$tmp/$1-area.png" "$out/$1.png" "$scale"
     echo "Made $1.png"
 }
 
