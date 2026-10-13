@@ -72,6 +72,14 @@ scripts/make-screenshots.sh
 
 This makes the screenshots in `assets/screenshots` again: the menu (short and with all controls) and the Settings window, in light and dark mode. It takes about 30 seconds, and you must not use the mouse or keyboard while it runs. It needs an external display and [Pillow](https://pypi.org/project/pillow/) (`pip3 install pillow`). Afterwards, it restores your settings.
 
+### Build on Linux
+
+```sh
+scripts/build-app-linux.sh --notarize
+```
+
+This builds `OpenDisplay.app` on Linux with [nix-apple-dev](https://github.com/m9tdev/nix-apple-dev) (its SDK has the macOS SDK too), signs it with a Developer ID with [rcodesign](https://github.com/indygreg/apple-platform-rs), and notarizes and staples it with an App Store Connect API key. The comment at the top of the script lists what it needs.
+
 ### Releases
 
 ```sh
