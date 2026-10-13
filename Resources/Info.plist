@@ -8,6 +8,10 @@
 	<string>OpenDisplay</string>
 	<key>CFBundleDisplayName</key>
 	<string>OpenDisplay</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleExecutable</key>
 	<string>OpenDisplay</string>
 	<key>CFBundlePackageType</key>
