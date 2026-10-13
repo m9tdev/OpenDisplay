@@ -86,7 +86,7 @@ This builds `OpenDisplay.app` on Linux with [nix-apple-dev](https://github.com/m
 scripts/make-release.sh notes.md
 ```
 
-This makes a GitHub release of the version in `Resources/Info.plist`, with the built app as a zip and the release notes in `notes.md`. Raise the version first.
+This tags the version in `Resources/Info.plist`, with the release notes in `notes.md` as the tag message, and pushes the tag. Raise the version first. The [Release workflow](.github/workflows/release.yml) then builds, signs, and notarizes the app on a self-hosted runner with `scripts/build-app-linux.sh`, and publishes the GitHub release. The signing and notary keys are secrets of the `release` environment on GitHub, which only `v*` tags can use.
 
 To change the app icon, change the geometry in `scripts/make-app-icon.py` and `Sources/OpenDisplay/MenuBarIcon.swift`, then run `scripts/make-app-icon.py` on a Mac. It makes `Resources/AppIcon.icon`, and compiles it with Apple's `actool` into `Resources/AppIcon.compiled`, which the build copies into the app.
 
