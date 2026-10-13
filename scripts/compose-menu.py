@@ -49,8 +49,16 @@ def mismatch(dx, dy):
 dx, dy = min(((dx, dy) for dx in range(-search, search + 1) for dy in range(-search, search + 1)), key=lambda d: mismatch(*d))
 x, y = x0 + dx, y0 + dy
 print(f"{dest}: menu found {dx:+d} x {dy:+d} px from the expected position", file=sys.stderr)
-inside = area.crop((x, y, x + width, y + height))
 
-# Replace only the opaque pixels, so the system's rounded corners, outline, and shadow stay.
-window.paste(inside, (left, top), opaque.crop((left, top, right, bottom)))
+# Take the colors of the menu from the area capture, and keep the transparency of the window capture. So the
+# system's rounded corners, outline, and shadow stay, and the anti-aliased edge pixels of the corners get the
+# right glass color too (they are partly transparent). Only pixels that are mostly opaque are part of the menu;
+# the shadow around it is at most about half opaque.
+# The whole area capture, moved so its menu lies on the window's menu: so also the edge pixels just outside the
+# opaque part get a color.
+menu = Image.new("RGBA", window.size, (0, 0, 0, 0))
+menu.paste(area, (left - x, top - y))
+menu.putalpha(alpha)
+part_of_menu = alpha.point(lambda a: 255 if a >= 128 else 0)
+window.paste(menu, (0, 0), part_of_menu)
 window.save(dest)
