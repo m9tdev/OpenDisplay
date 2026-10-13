@@ -34,6 +34,8 @@ restore() {
     quit
     defaults import dev.m9t.OpenDisplay "$tmp/settings.plist"
     open ~/Applications/OpenDisplay.app 2> /dev/null || true
+    # The raw captures stay in build/screenshots, to check or compose them again.
+    mkdir -p build/screenshots && cp "$tmp"/*.png build/screenshots/ 2> /dev/null || true
     rm -rf "$tmp"
 }
 trap restore EXIT
