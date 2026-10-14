@@ -27,6 +27,9 @@ final class Display: Identifiable {
     @ObservationIgnored var dimming: Double = 1
     /// How the light follows the DDC level. From the calibration of the display model, if there is one.
     @ObservationIgnored var curve = ExternalCurve()
+    /// The monitor settings that change the light, by name (see `BrightnessCalibration.monitorSettings`).
+    /// `nil` until read.
+    var monitorSettings: [String: UInt16]?
 
     /// The VCP codes the external display supports, with their allowed values (see `VCP.parse`). `nil` until read.
     var capabilities: [UInt8: [UInt8]]?
@@ -58,7 +61,7 @@ final class Display: Identifiable {
     }
 
     var brightnessControl: BrightnessControl {
-        guard hasHardwareBrightness else { return .software }
+        guard hasHardwareBrightness else { return .software(scale: curve.scale) }
         return isBuiltin ? .builtin : .external(curve)
     }
 }
@@ -136,7 +139,6 @@ final class DisplayManager {
                 continue
             }
             display.isEnabled = CGDisplayIsActive(id) != 0
-            updateCurve(display)
             if display.isEnabled {
                 display.name = Self.name(of: id)
                 if display.ddc == nil || ddc[id] == nil {
@@ -147,6 +149,8 @@ final class DisplayManager {
             } else {
                 display.ddc = nil
             }
+            // After the DDC check: a display with DDC and one without use different calibrations.
+            updateCurve(display)
             next.append(display)
         }
         byID = Dictionary(uniqueKeysWithValues: next.map { ($0.id, $0) })
@@ -183,13 +187,13 @@ final class DisplayManager {
             if let get = PrivateAPI.getBrightness, get(display.id, &value) == 0 {
                 display.brightness = BrightnessControl.builtin.slider(level: Double(value), dimming: display.dimming)
             } else {
-                display.brightness = BrightnessControl.software.slider(level: nil, dimming: display.dimming)
+                display.brightness = display.brightnessControl.slider(level: nil, dimming: display.dimming)
             }
             return
         }
         guard let ddc = display.ddc else {
             // No DDC: the slider still works, with software dimming only.
-            display.brightness = BrightnessControl.software.slider(level: nil, dimming: display.dimming)
+            display.brightness = display.brightnessControl.slider(level: nil, dimming: display.dimming)
             return
         }
         ddc.readLater(vcp: VCP.brightness) { [weak display] result in
@@ -326,8 +330,24 @@ final class DisplayManager {
         syncFromBuiltin()
     }
 
+    /// A calibration with DDC is only for a display with DDC, and one without DDC only for a display without it.
     private func updateCurve(_ display: Display) {
-        display.curve = calibrations[display.modelKey]?.curve(synced: isSynced(display)) ?? ExternalCurve()
+        let calibration = calibrations[display.modelKey].flatMap { $0.usesDDC == (display.ddc != nil) ? $0 : nil }
+        display.curve = calibration?.curve(synced: isSynced(display)) ?? ExternalCurve()
+    }
+
+    /// Reads the monitor settings that change the light, into `monitorSettings`.
+    func readMonitorSettings(_ display: Display) {
+        guard let ddc = display.ddc else { return }
+        for setting in BrightnessCalibration.monitorSettings
+        where display.capabilities?.isEmpty != false || display.capabilities?[setting.vcp] != nil {
+            ddc.readLater(vcp: setting.vcp) { [weak display] result in
+                MainActor.assumeIsolated {
+                    guard let display, let result else { return }
+                    display.monitorSettings = (display.monitorSettings ?? [:]).merging([setting.name: result.current]) { $1 }
+                }
+            }
+        }
     }
 
     // MARK: Volume
@@ -506,12 +526,15 @@ final class DisplayManager {
     func setContrast(_ display: Display, to value: Double) {
         let value = min(max(value, 0), 1)
         display.contrast = value
-        display.ddc?.setLater(vcp: VCP.contrast, value: UInt16((value * Double(display.contrastMax)).rounded()))
+        let level = UInt16((value * Double(display.contrastMax)).rounded())
+        display.ddc?.setLater(vcp: VCP.contrast, value: level)
+        display.monitorSettings?["contrast"] = level
     }
 
     func setColorPreset(_ display: Display, _ preset: UInt8) {
         display.colorPreset = preset
         display.ddc?.setLater(vcp: VCP.colorPreset, value: UInt16(preset))
+        display.monitorSettings?["colorPreset"] = UInt16(preset)
     }
 
     /// Switches the external display to another input. If the Mac is not on that input, the display disconnects.

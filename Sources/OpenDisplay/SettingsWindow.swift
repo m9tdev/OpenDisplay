@@ -126,9 +126,9 @@ private struct SettingsView: View {
         }
     }
 
-    /// External displays with brightness control over DDC.
+    /// External displays. Without DDC, the calibration uses software dimming.
     private var calibratable: [Display] {
-        manager.displays.filter { !$0.isBuiltin && $0.isEnabled && $0.hasHardwareBrightness }
+        manager.displays.filter { !$0.isBuiltin && $0.isEnabled }
     }
 
     private var hasBuiltin: Bool {
@@ -137,6 +137,7 @@ private struct SettingsView: View {
 
     private func calibrationRow(_ display: Display) -> some View {
         let calibration = manager.calibration(for: display)
+        let changed = calibration?.changedSettings(display.monitorSettings) ?? []
         return LabeledContent {
             HStack {
                 if calibration != nil {
@@ -148,7 +149,16 @@ private struct SettingsView: View {
         } label: {
             Text(display.name)
             Text(calibration.map { "Calibrated on \($0.date.formatted(date: .abbreviated, time: .omitted))" } ?? "Not calibrated")
+            if !changed.isEmpty {
+                Text("Calibrated with other monitor settings (\(changed.joined(separator: ", ").lowercased())). Calibrate again.")
+                    .foregroundStyle(.orange)
+            }
         }
+        // The settings can change with the monitor's own buttons, so read them each time the window opens.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            manager.readMonitorSettings(display)
+        }
+        .onAppear { manager.readMonitorSettings(display) }
     }
 
     private func presetRow(_ preset: Preset) -> some View {

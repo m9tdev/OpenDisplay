@@ -3,19 +3,23 @@ import Foundation
 
 /// The measured brightness of an external display model, from matching it by eye with the built-in display.
 ///
-/// It describes the display model, not this Mac, so the same values work for each display of that model.
-/// The format is versioned JSON, so calibrations can be shared later.
+/// It describes the display model, not this Mac, so the same values work for each display of that model with the
+/// same monitor settings. The format is versioned JSON, so calibrations can be shared later.
 struct BrightnessCalibration: Codable, Equatable {
     var version = 1
     var vendor: UInt32
     var model: UInt32
     var name: String
     /// The light at the lowest DDC level, as a part of the display's maximum light.
-    var lowest: Double
-    /// The shape of the curve between the lowest and the highest DDC level (see `ExternalCurve`).
-    var gamma: Double
+    /// Nil for a display without DDC: then only `maximum` is known.
+    var lowest: Double?
+    /// The shape of the curve between the lowest and the highest DDC level (see `ExternalCurve`). Nil without DDC.
+    var gamma: Double?
     /// The maximum light of the display, as a part of the maximum light of the reference display.
+    /// Without DDC: the light at the backlight level that was set with the display's own buttons.
     var maximum: Double
+    /// The monitor settings during the calibration, by name (see `monitorSettings`). Other settings give other light.
+    var settings: [String: UInt16]?
     /// The Mac model with the reference (built-in) display, for example "Mac14,9".
     var reference: String
     var date: Date
@@ -27,10 +31,30 @@ struct BrightnessCalibration: Codable, Equatable {
 
     var key: String { Self.key(vendor: vendor, model: model) }
 
+    var usesDDC: Bool { lowest != nil && gamma != nil }
+
     /// - Parameter synced: True if the display follows the built-in display. Then it gives the same light as the
     ///   built-in display, and not the same part of its own maximum.
     func curve(synced: Bool) -> ExternalCurve {
-        ExternalCurve(lowest: lowest, gamma: gamma, scale: synced ? 1 / maximum : 1)
+        let estimate = ExternalCurve()
+        return ExternalCurve(lowest: lowest ?? estimate.lowest, gamma: gamma ?? estimate.gamma, scale: synced ? 1 / maximum : 1)
+    }
+
+    /// The monitor settings (DDC) that change the light of the display.
+    static let monitorSettings: [(name: String, title: String, vcp: UInt8)] = [
+        ("contrast", "Contrast", VCP.contrast),
+        ("colorPreset", "Color preset", VCP.colorPreset),
+        ("gamma", "Gamma", 0x72),
+        ("pictureMode", "Picture mode", 0xDC),
+    ]
+
+    /// The titles of the monitor settings that are now different from the settings during the calibration.
+    func changedSettings(_ current: [String: UInt16]?) -> [String] {
+        guard let settings, let current else { return [] }
+        return Self.monitorSettings.filter { setting in
+            guard let old = settings[setting.name], let new = current[setting.name] else { return false }
+            return old != new
+        }.map(\.title)
     }
 
     static var macModel: String {

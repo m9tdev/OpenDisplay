@@ -37,8 +37,9 @@ enum BrightnessControl {
     case builtin
     /// An external display over DDC, with software dimming below its lowest level.
     case external(ExternalCurve)
-    /// No brightness control: software dimming only.
-    case software
+    /// No brightness control: software dimming only. The light the slider asks for is multiplied by `scale`
+    /// (see `ExternalCurve.scale`).
+    case software(scale: Double)
 
     /// The hardware level (nil: leave it as it is) and the software dimming factor for a slider position.
     func split(_ slider: Double) -> (level: Double?, dimming: Double) {
@@ -51,8 +52,8 @@ enum BrightnessControl {
         case .external(let curve):
             let light = min(BrightnessCurve.light(slider: slider) * curve.scale, 1)
             return light >= curve.lowest ? (curve.level(light: light), 1) : (0, light / curve.lowest)
-        case .software:
-            return (nil, BrightnessCurve.light(slider: slider))
+        case .software(let scale):
+            return (nil, min(BrightnessCurve.light(slider: slider) * scale, 1))
         }
     }
 
@@ -64,8 +65,8 @@ enum BrightnessControl {
         case .external(let curve):
             let light = dimming < 1 ? dimming * curve.lowest : curve.light(level: level ?? 1)
             return BrightnessCurve.slider(light: light / curve.scale)
-        case .software:
-            return BrightnessCurve.slider(light: dimming)
+        case .software(let scale):
+            return BrightnessCurve.slider(light: dimming / scale)
         }
     }
 }
