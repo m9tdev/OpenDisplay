@@ -149,12 +149,12 @@ final class DisplayManager {
             } else {
                 display.ddc = nil
             }
-            // After the DDC check: a display with DDC and one without use different calibrations.
-            updateCurve(display)
             next.append(display)
         }
         byID = Dictionary(uniqueKeysWithValues: next.map { ($0.id, $0) })
         displays = next.sorted { ($0.isBuiltin ? 1 : 0, $0.id) < ($1.isBuiltin ? 1 : 0, $1.id) }
+        // After the DDC check: a display with DDC and one without use different calibrations.
+        updateCurves()
 
         for display in displays where display.isEnabled && display.dimming < 1 {
             // A display that turned off and on again has its normal color table again.
@@ -214,15 +214,22 @@ final class DisplayManager {
 
     func setBrightness(_ display: Display, to value: Double) {
         let value = min(max(value, 0), 1)
+        if display.isBuiltin {
+            applyBrightness(display, value)
+            followBuiltin(value)
+        } else if isSynced(display) {
+            setSharedBrightness(value)
+        } else {
+            applyBrightness(display, value)
+        }
+    }
+
+    /// Sets one display, without sync.
+    private func applyBrightness(_ display: Display, _ value: Double) {
         display.brightness = value
         let (level, dimming) = display.brightnessControl.split(value)
         display.dimming = dimming
         SoftwareDimming.set(dimming, for: display.id)
-        if display.isBuiltin {
-            for other in displays where other.isEnabled && isSynced(other) {
-                setBrightness(other, to: value)
-            }
-        }
         guard let level else { return }
         if display.isBuiltin {
             lastBuiltinBacklight = Float(level)
@@ -250,11 +257,73 @@ final class DisplayManager {
         !display.isBuiltin && syncedKeys.contains(display.stableKey)
     }
 
+    // Synced displays share one brightness: a slider position on the macOS curve, from black up to the maximum light
+    // of the brightest display. Where both can give the light, the built-in and the synced displays give the same
+    // light. Above the maximum of a display, it stays at its maximum, and the brighter displays go on.
+
+    /// The slider position of the synced displays. `nil` until the first sync.
+    @ObservationIgnored private(set) var sharedBrightness: Double?
+
+    private var builtin: Display? {
+        displays.first { $0.isBuiltin && $0.isEnabled }
+    }
+
+    private var syncedDisplays: [Display] {
+        displays.filter { $0.isEnabled && isSynced($0) }
+    }
+
+    /// The maximum light of the brightest synced display, as a part of the built-in display's maximum. At least 1.
+    private var sharedMaximum: Double {
+        max(syncedDisplays.compactMap { calibrationInUse(for: $0)?.maximum }.max() ?? 1, 1)
+    }
+
+    /// The built-in display's slider position for a shared slider position: the same light, up to its maximum.
+    private func builtinSlider(shared: Double) -> Double {
+        BrightnessCurve.slider(light: min(BrightnessCurve.light(slider: shared) * sharedMaximum, 1))
+    }
+
+    /// The inverse of `builtinSlider(shared:)`, for a built-in display below its maximum.
+    private func sharedSlider(builtin: Double) -> Double {
+        BrightnessCurve.slider(light: BrightnessCurve.light(slider: builtin) / sharedMaximum)
+    }
+
+    func setSharedBrightness(_ value: Double) {
+        let value = min(max(value, 0), 1)
+        sharedBrightness = value
+        for display in syncedDisplays {
+            applyBrightness(display, value)
+        }
+        if let builtin {
+            applyBrightness(builtin, builtinSlider(shared: value))
+        }
+    }
+
+    /// The synced displays follow a change of the built-in display (keys, light sensor, slider).
+    private func followBuiltin(_ value: Double) {
+        // At its maximum, the built-in display cannot show a shared brightness above it. So keep that brightness.
+        let aboveBuiltin = value >= 1 && (sharedBrightness ?? 0) >= sharedSlider(builtin: 1)
+        if !aboveBuiltin {
+            sharedBrightness = sharedSlider(builtin: value)
+        }
+        guard let shared = sharedBrightness else { return }
+        for display in syncedDisplays {
+            applyBrightness(display, shared)
+        }
+    }
+
+    /// True if a brightness key must change the shared brightness here, because macOS cannot: up with the built-in
+    /// display at its maximum, or down from above its maximum.
+    func keyChangesSharedBrightness(up: Bool) -> Bool {
+        guard sharedMaximum > 1, !syncedDisplays.isEmpty, let shared = sharedBrightness,
+              let builtinValue = builtin?.brightness else { return false }
+        return up ? builtinValue >= 1 && shared < 1 : shared > sharedSlider(builtin: 1) + 1e-6
+    }
+
     func setSynced(_ display: Display, _ synced: Bool) {
         var keys = syncedKeys
         if synced { keys.insert(display.stableKey) } else { keys.remove(display.stableKey) }
         syncedKeys = keys
-        updateCurve(display)
+        updateCurves()
         if !synced, let brightness = display.brightness {
             // The same slider position gives a different light without sync.
             setBrightness(display, to: brightness)
@@ -300,9 +369,7 @@ final class DisplayManager {
         lastBuiltinBacklight = backlight
         let value = BrightnessControl.builtin.slider(level: Double(backlight), dimming: builtin.dimming)
         builtin.brightness = value
-        for other in displays where other.isEnabled && isSynced(other) {
-            setBrightness(other, to: value)
-        }
+        followBuiltin(value)
     }
 
     // MARK: Calibration
@@ -320,8 +387,8 @@ final class DisplayManager {
 
     func setCalibration(_ calibration: BrightnessCalibration?, for display: Display) {
         calibrations[display.modelKey] = calibration
-        for other in displays where other.modelKey == display.modelKey {
-            updateCurve(other)
+        updateCurves()
+        for other in displays where other.modelKey == display.modelKey && !isSynced(other) {
             if let brightness = other.brightness, other.isEnabled {
                 setBrightness(other, to: brightness)
             }
@@ -331,9 +398,22 @@ final class DisplayManager {
     }
 
     /// A calibration with DDC is only for a display with DDC, and one without DDC only for a display without it.
-    private func updateCurve(_ display: Display) {
-        let calibration = calibrations[display.modelKey].flatMap { $0.usesDDC == (display.ddc != nil) ? $0 : nil }
-        display.curve = calibration?.curve(synced: isSynced(display)) ?? ExternalCurve()
+    private func calibrationInUse(for display: Display) -> BrightnessCalibration? {
+        calibrations[display.modelKey].flatMap { $0.usesDDC == (display.ddc != nil) ? $0 : nil }
+    }
+
+    /// Call after a change of the displays, the calibrations, or the sync: the brightest synced display sets the
+    /// range of all synced displays.
+    private func updateCurves() {
+        let shared = sharedMaximum
+        for display in displays {
+            let calibration = calibrationInUse(for: display)
+            var curve = calibration?.curve ?? ExternalCurve()
+            if isSynced(display) {
+                curve.scale = shared / (calibration?.maximum ?? 1)
+            }
+            display.curve = curve
+        }
     }
 
     /// Reads the monitor settings that change the light, into `monitorSettings`.

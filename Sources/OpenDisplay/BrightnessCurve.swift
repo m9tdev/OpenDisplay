@@ -25,6 +25,8 @@ enum BrightnessCurve {
 
     /// The slider position for a light output. The inverse of `light(slider:)`.
     static func slider(light: Double) -> Double {
+        // Exactly 1 at the maximum: a rounding error would give 0.99999, which is not the maximum.
+        guard light < 1 else { return 1 }
         let light = max(light, 1e-6)
         let steps = log(light / middle) / log(light < middle ? lowerStep : upperStep)
         return min(max(0.5 + steps / 10, 0), 1)
@@ -79,8 +81,8 @@ struct ExternalCurve: Equatable {
     var lowest = 0.1
     /// 1: the DDC level is linear in light output, which is typical.
     var gamma = 1.0
-    /// The light the slider asks for is multiplied by this. Above 1 when the display follows a built-in display
-    /// that is darker than it, so the two displays give the same light.
+    /// The light the slider asks for is multiplied by this. With sync: the maximum of the brightest synced display
+    /// divided by this display's maximum, so the synced displays give the same light (see `DisplayManager`).
     var scale = 1.0
 
     func light(level: Double) -> Double {

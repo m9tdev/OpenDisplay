@@ -33,11 +33,10 @@ struct BrightnessCalibration: Codable, Equatable {
 
     var usesDDC: Bool { lowest != nil && gamma != nil }
 
-    /// - Parameter synced: True if the display follows the built-in display. Then it gives the same light as the
-    ///   built-in display, and not the same part of its own maximum.
-    func curve(synced: Bool) -> ExternalCurve {
+    /// The curve without sync. With sync, `DisplayManager` sets its scale.
+    var curve: ExternalCurve {
         let estimate = ExternalCurve()
-        return ExternalCurve(lowest: lowest ?? estimate.lowest, gamma: gamma ?? estimate.gamma, scale: synced ? 1 / maximum : 1)
+        return ExternalCurve(lowest: lowest ?? estimate.lowest, gamma: gamma ?? estimate.gamma)
     }
 
     /// The monitor settings (DDC) that change the light of the display.
