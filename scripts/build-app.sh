@@ -15,6 +15,9 @@ ditto "$bin/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"
 rm -rf "$app/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices" "$app/Contents/Frameworks/Sparkle.framework/XPCServices"
 install_name_tool -add_rpath @executable_path/../Frameworks "$app/Contents/MacOS/OpenDisplay"
 cp Resources/Info.plist "$app/Contents/"
+# The version comes from version.txt (release-please updates it), not from the Info.plist in the repository.
+plutil -replace CFBundleShortVersionString -string "$(scripts/version.sh)" "$app/Contents/Info.plist"
+plutil -replace CFBundleVersion -string "$(scripts/version.sh build)" "$app/Contents/Info.plist"
 # The icon is an Icon Composer document (scripts/make-app-icon.py makes it). actool makes Assets.car (Liquid Glass,
 # macOS 26 and later) and AppIcon.icns (earlier versions). actool needs absolute paths.
 xcrun actool "$PWD/Resources/AppIcon.icon" --compile "$PWD/$app/Contents/Resources" --platform macosx \

@@ -75,11 +75,15 @@ This makes the screenshots in `assets/screenshots` again: the menu (short and wi
 
 ### Releases
 
-```sh
-scripts/make-release.sh notes.md
-```
+Releases are made by [release-please](https://github.com/googleapis/release-please) and the [Release workflow](.github/workflows/release.yml):
 
-This tags the version in `Resources/Info.plist`, with the release notes in `notes.md` as the tag message, and pushes the tag. Raise the version first. The [Release workflow](.github/workflows/release.yml) then builds the app on a GitHub-hosted macOS runner (Xcode 27), signs it with the Developer ID, notarizes it (`scripts/notarize.sh`), and publishes the GitHub release. The release also gets `appcast.xml` (made by `scripts/make-appcast.sh`), the feed that the app reads for automatic updates. Sparkle installs an update only if the zip has a valid signature with the Sparkle key. The signing, notary, and Sparkle keys are secrets of the `release` environment on GitHub, which only `v*` tags can use. The Sparkle key is also in the maintainer's login keychain (Sparkle's `generate_keys`).
+1. Write commit messages (and pull request titles, for squash merges) as [Conventional Commits](https://www.conventionalcommits.org): `feat: …` for a new feature (raises the minor version), `fix: …` for a fix (raises the patch version). Other types, like `docs:`, `ci:`, `chore:`, and `refactor:`, do not make a release.
+2. On each push to `main`, release-please keeps a release pull request up to date, with the next version (in `version.txt`) and `CHANGELOG.md`.
+3. Merge that pull request to release. The workflow then builds the app on a GitHub-hosted macOS runner (Xcode 27), signs it with the Developer ID, notarizes it (`scripts/notarize.sh`), attaches the zip and `appcast.xml` (made by `scripts/make-appcast.sh`), and publishes the release.
+
+The app gets its version from `version.txt` when it is built (`scripts/version.sh`). The build number comes from the version (0.2.0 is 200), so it always goes up, which Sparkle needs to find updates. To build an existing release again, start the Release workflow by hand on its tag.
+
+`appcast.xml` is the feed that the app reads for automatic updates. Sparkle installs an update only if the zip has a valid signature with the Sparkle key. The signing, notary, and Sparkle keys are secrets of the `release` environment on GitHub, which only `main` and `v*` tags can use. The Sparkle key is also in the maintainer's login keychain (Sparkle's `generate_keys`).
 
 To make a notarized build on your own Mac: `SIGN_IDENTITY="Developer ID Application: …" scripts/build-app.sh`, then `scripts/notarize.sh` with `ASC_KEY_ID`, `ASC_ISSUER_ID`, and `ASC_KEY_PATH` set.
 

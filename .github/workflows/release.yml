@@ -1,46 +1,68 @@
-# Builds, signs, and notarizes OpenDisplay on a GitHub-hosted macOS runner (Xcode 27), and publishes the GitHub
-# release for the tag. scripts/make-release.sh makes the tag, with the release notes as its message.
+# Releases with release-please. On each push to main, release-please keeps a release pull request up to date: the next
+# version (in version.txt) and CHANGELOG.md, from the commit messages (feat: raises the minor version, fix: the patch
+# version). When that pull request is merged, release-please makes a draft release with its tag, and the build job
+# builds, signs, and notarizes OpenDisplay on a GitHub-hosted macOS runner (Xcode 27), attaches the zip and the Sparkle
+# update feed (appcast.xml), and publishes the release. A manual start on a v* tag builds that release again.
 #
-# It runs only for v* tags (and manual starts on a tag), never for pull requests. The signing and notary keys are
-# secrets of the "release" environment, which GitHub allows only for v* tags. Each secret is given only to the step
-# that needs it. The release also gets appcast.xml, the feed for automatic updates (Sparkle).
+# It never runs for pull requests. The signing, notary, and Sparkle keys are secrets of the "release" environment,
+# which GitHub allows only for main and v* tags. Each secret is given only to the step that needs it.
 name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  # One group per tag: runs for the same tag wait for each other; runs for other tags do not cancel them.
+  # Runs for the same ref wait for each other, so two releases never build at the same time.
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  release:
+  release-please:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  build:
+    needs: release-please
+    # After a merged release pull request, or a manual start on a v* tag (to build a release again).
+    if: >-
+      always() && (needs.release-please.outputs.release_created == 'true'
+      || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v')))
     # Xcode 27 with the macOS 27 SDK (public preview image, Apple silicon).
     runs-on: xcode-27
     environment: release
     timeout-minutes: 60
     permissions:
       contents: write
+    env:
+      TAG: ${{ needs.release-please.outputs.tag_name || github.ref_name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.TAG }}
           persist-credentials: false
 
       - name: Check the tag and the version
         run: |
-          case "$GITHUB_REF" in
-            refs/tags/v*) ;;
-            *) echo "Run this on a v* tag, not on $GITHUB_REF." >&2; exit 1 ;;
-          esac
-          version="$(plutil -extract CFBundleShortVersionString raw Resources/Info.plist)"
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
-            echo "The tag is $GITHUB_REF_NAME, but Resources/Info.plist has version $version." >&2
+          version="$(scripts/version.sh)"
+          if [ "v$version" != "$TAG" ]; then
+            echo "The tag is $TAG, but version.txt has version $version." >&2
             exit 1
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
@@ -95,12 +117,9 @@ jobs:
           SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
         run: |
           : "${SPARKLE_ED_PRIVATE_KEY:?The secret SPARKLE_ED_PRIVATE_KEY is missing}"
-          # The checkout has the tag without its message, so fetch the annotated tag: its message is the release notes.
-          git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
-          # The message as written, without the tag's signature (tags can be signed), which git puts after it.
-          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" \
-            | sed '/^-----BEGIN .*SIGNATURE-----$/,$d' > build/notes.md
-          # The notes as HTML for the update window, made by GitHub's own markdown renderer.
+          # The release notes that release-please wrote (from CHANGELOG.md), as HTML for the update window, made by
+          # GitHub's own markdown renderer.
+          gh release view "$TAG" --json body --jq .body > build/notes.md
           gh api markdown -f text="$(cat build/notes.md)" -f mode=gfm > build/notes.html
           scripts/make-appcast.sh build/notes.html
 
@@ -108,15 +127,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          zip="build/OpenDisplay-$VERSION.zip"
-          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            # A run again for the same tag: replace the files.
-            gh release upload "$GITHUB_REF_NAME" "$zip" build/appcast.xml --clobber
-          else
-            # The app reads build/appcast.xml from the latest release (SUFeedURL in Info.plist).
-            gh release create "$GITHUB_REF_NAME" "$zip" build/appcast.xml --verify-tag --title "OpenDisplay $VERSION" \
-              --notes-file build/notes.md
-          fi
+          # Attach the files first, then publish: so the latest release always has them. The app reads appcast.xml
+          # from the latest release (SUFeedURL in Info.plist).
+          gh release upload "$TAG" "build/OpenDisplay-$VERSION.zip" build/appcast.xml --clobber
+          gh release edit "$TAG" --draft=false --latest --title "OpenDisplay $VERSION"
 
       - name: Remove the temporary keychain
         if: always()

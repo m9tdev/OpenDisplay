@@ -1,5 +1,5 @@
 #!/bin/sh
-# Make build/appcast.xml, the Sparkle update feed, for build/OpenDisplay-VERSION.zip (the version in Info.plist).
+# Make build/appcast.xml, the Sparkle update feed, for build/OpenDisplay-VERSION.zip (the version in version.txt).
 # The release workflow attaches it to the GitHub release, and the app reads it from the latest release (SUFeedURL).
 #
 #   scripts/make-appcast.sh [NOTES_HTML]
@@ -11,10 +11,9 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-plist() { plutil -extract "$1" raw Resources/Info.plist; }
-version="$(plist CFBundleShortVersionString)"
-build="$(plist CFBundleVersion)"
-minimum="$(plist LSMinimumSystemVersion)"
+version="$(scripts/version.sh)"
+build="$(scripts/version.sh build)"
+minimum="$(plutil -extract LSMinimumSystemVersion raw Resources/Info.plist)"
 zip="build/OpenDisplay-$version.zip"
 url="${DOWNLOAD_URL:-https://github.com/m9tdev/OpenDisplay/releases/download/v$version/OpenDisplay-$version.zip}"
 sign_update=.build/artifacts/sparkle/Sparkle/bin/sign_update

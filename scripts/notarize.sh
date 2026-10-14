@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 
 : "${ASC_KEY_ID:?ASC_KEY_ID is not set}" "${ASC_ISSUER_ID:?ASC_ISSUER_ID is not set}"
 app=build/OpenDisplay.app
-version="$(plutil -extract CFBundleShortVersionString raw Resources/Info.plist)"
+version="$(scripts/version.sh)"
 zip="build/OpenDisplay-$version.zip"
 
 secrets="$(mktemp -d)"
