@@ -23,6 +23,7 @@ A free macOS menu bar app to control your displays. It looks and works like the 
 - **Resolution, refresh rate, rotation, and main display.**
 - **Extra brightness** for XDR displays: up to 2× the normal maximum.
 - **Presets:** save a setup of displays and apply it with one click.
+- **Automatic updates:** OpenDisplay checks for new versions once a day ([Sparkle](https://sparkle-project.org)), and asks before it installs one.
 
 ## Screenshots
 
@@ -78,7 +79,7 @@ This makes the screenshots in `assets/screenshots` again: the menu (short and wi
 scripts/make-release.sh notes.md
 ```
 
-This tags the version in `Resources/Info.plist`, with the release notes in `notes.md` as the tag message, and pushes the tag. Raise the version first. The [Release workflow](.github/workflows/release.yml) then builds the app on a GitHub-hosted macOS runner (Xcode 27), signs it with the Developer ID, notarizes it (`scripts/notarize.sh`), and publishes the GitHub release. The signing and notary keys are secrets of the `release` environment on GitHub, which only `v*` tags can use.
+This tags the version in `Resources/Info.plist`, with the release notes in `notes.md` as the tag message, and pushes the tag. Raise the version first. The [Release workflow](.github/workflows/release.yml) then builds the app on a GitHub-hosted macOS runner (Xcode 27), signs it with the Developer ID, notarizes it (`scripts/notarize.sh`), and publishes the GitHub release. The release also gets `appcast.xml` (made by `scripts/make-appcast.sh`), the feed that the app reads for automatic updates. Sparkle installs an update only if the zip has a valid signature with the Sparkle key. The signing, notary, and Sparkle keys are secrets of the `release` environment on GitHub, which only `v*` tags can use. The Sparkle key is also in the maintainer's login keychain (Sparkle's `generate_keys`).
 
 To make a notarized build on your own Mac: `SIGN_IDENTITY="Developer ID Application: …" scripts/build-app.sh`, then `scripts/notarize.sh` with `ASC_KEY_ID`, `ASC_ISSUER_ID`, and `ASC_KEY_PATH` set.
 

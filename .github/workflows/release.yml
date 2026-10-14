@@ -3,7 +3,7 @@
 #
 # It runs only for v* tags (and manual starts on a tag), never for pull requests. The signing and notary keys are
 # secrets of the "release" environment, which GitHub allows only for v* tags. Each secret is given only to the step
-# that needs it.
+# that needs it. The release also gets appcast.xml, the feed for automatic updates (Sparkle).
 name: Release
 
 on:
@@ -89,21 +89,33 @@ jobs:
           scripts/notarize.sh
           spctl --assess --type execute --verbose=2 build/OpenDisplay.app
 
-      - name: Publish the release
+      - name: Make the update feed
         env:
           GH_TOKEN: ${{ github.token }}
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
         run: |
+          : "${SPARKLE_ED_PRIVATE_KEY:?The secret SPARKLE_ED_PRIVATE_KEY is missing}"
           # The checkout has the tag without its message, so fetch the annotated tag: its message is the release notes.
           git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
           # The message as written, without the tag's signature (tags can be signed), which git puts after it.
           git tag -l --format='%(contents)' "$GITHUB_REF_NAME" \
             | sed '/^-----BEGIN .*SIGNATURE-----$/,$d' > build/notes.md
+          # The notes as HTML for the update window, made by GitHub's own markdown renderer.
+          gh api markdown -f text="$(cat build/notes.md)" -f mode=gfm > build/notes.html
+          scripts/make-appcast.sh build/notes.html
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
           zip="build/OpenDisplay-$VERSION.zip"
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            # A run again for the same tag: replace the zip.
-            gh release upload "$GITHUB_REF_NAME" "$zip" --clobber
+            # A run again for the same tag: replace the files.
+            gh release upload "$GITHUB_REF_NAME" "$zip" build/appcast.xml --clobber
           else
-            gh release create "$GITHUB_REF_NAME" "$zip" --verify-tag --title "OpenDisplay $VERSION" --notes-file build/notes.md
+            # The app reads build/appcast.xml from the latest release (SUFeedURL in Info.plist).
+            gh release create "$GITHUB_REF_NAME" "$zip" build/appcast.xml --verify-tag --title "OpenDisplay $VERSION" \
+              --notes-file build/notes.md
           fi
 
       - name: Remove the temporary keychain
