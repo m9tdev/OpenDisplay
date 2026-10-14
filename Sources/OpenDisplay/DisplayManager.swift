@@ -25,6 +25,8 @@ final class Display: Identifiable {
     @ObservationIgnored var volumeMax: UInt16 = 100
     /// Software dimming: 1 is the normal image.
     @ObservationIgnored var dimming: Double = 1
+    /// How the light follows the DDC level. From the calibration of the display model, if there is one.
+    @ObservationIgnored var curve = ExternalCurve()
 
     /// The VCP codes the external display supports, with their allowed values (see `VCP.parse`). `nil` until read.
     var capabilities: [UInt8: [UInt8]]?
@@ -45,6 +47,11 @@ final class Display: Identifiable {
         "\(CGDisplayVendorNumber(id))-\(CGDisplayModelNumber(id))-\(CGDisplaySerialNumber(id))"
     }
 
+    /// Identifies the display model, so all displays of one model share a calibration.
+    var modelKey: String {
+        BrightnessCalibration.key(vendor: CGDisplayVendorNumber(id), model: CGDisplayModelNumber(id))
+    }
+
     /// True if the backlight itself can change. Without it, the slider only dims in software.
     var hasHardwareBrightness: Bool {
         isBuiltin ? PrivateAPI.setBrightness != nil : ddc != nil
@@ -52,7 +59,7 @@ final class Display: Identifiable {
 
     var brightnessControl: BrightnessControl {
         guard hasHardwareBrightness else { return .software }
-        return isBuiltin ? .builtin : .external
+        return isBuiltin ? .builtin : .external(curve)
     }
 }
 
@@ -129,6 +136,7 @@ final class DisplayManager {
                 continue
             }
             display.isEnabled = CGDisplayIsActive(id) != 0
+            updateCurve(display)
             if display.isEnabled {
                 display.name = Self.name(of: id)
                 if display.ddc == nil || ddc[id] == nil {
@@ -190,7 +198,7 @@ final class DisplayManager {
                 if let result, result.max > 0 {
                     display.ddcMax = result.max
                     let level = Double(result.current) / Double(result.max)
-                    display.brightness = BrightnessControl.external.slider(level: level, dimming: display.dimming)
+                    display.brightness = BrightnessControl.external(display.curve).slider(level: level, dimming: display.dimming)
                 } else {
                     // Writes often work when reads do not, so still allow control.
                     display.brightness = 0.5
@@ -242,6 +250,11 @@ final class DisplayManager {
         var keys = syncedKeys
         if synced { keys.insert(display.stableKey) } else { keys.remove(display.stableKey) }
         syncedKeys = keys
+        updateCurve(display)
+        if !synced, let brightness = display.brightness {
+            // The same slider position gives a different light without sync.
+            setBrightness(display, to: brightness)
+        }
         lastBuiltinBacklight = nil
         syncFromBuiltin()
     }
@@ -270,6 +283,8 @@ final class DisplayManager {
 
     /// - Parameter notified: The new built-in brightness from the notification, or nil to read it.
     private func syncFromBuiltin(_ notified: Float? = nil) {
+        // The calibration sets the built-in brightness itself, and the external display must not follow it.
+        guard !isCalibrating else { return }
         guard let builtin = displays.first(where: { $0.isBuiltin && $0.isEnabled }) else { return }
         var backlight: Float = 0
         if let notified {
@@ -284,6 +299,35 @@ final class DisplayManager {
         for other in displays where other.isEnabled && isSynced(other) {
             setBrightness(other, to: value)
         }
+    }
+
+    // MARK: Calibration
+
+    private(set) var calibrations = CalibrationStore.load() {
+        didSet { CalibrationStore.save(calibrations) }
+    }
+
+    /// True while the calibration window controls the brightness. Then brightness sync stops.
+    @ObservationIgnored var isCalibrating = false
+
+    func calibration(for display: Display) -> BrightnessCalibration? {
+        calibrations[display.modelKey]
+    }
+
+    func setCalibration(_ calibration: BrightnessCalibration?, for display: Display) {
+        calibrations[display.modelKey] = calibration
+        for other in displays where other.modelKey == display.modelKey {
+            updateCurve(other)
+            if let brightness = other.brightness, other.isEnabled {
+                setBrightness(other, to: brightness)
+            }
+        }
+        lastBuiltinBacklight = nil
+        syncFromBuiltin()
+    }
+
+    private func updateCurve(_ display: Display) {
+        display.curve = calibrations[display.modelKey]?.curve(synced: isSynced(display)) ?? ExternalCurve()
     }
 
     // MARK: Volume
