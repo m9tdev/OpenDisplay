@@ -47,6 +47,8 @@ private struct SettingsView: View {
 
     @State private var keysEnabled = KeyboardControl.isEnabled
     @State private var hasPermission = KeyboardControl.hasPermission
+    private static let coffeeURL = URL(string: "https://buymeacoffee.com/m9tdev")!
+
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var checksForUpdates = Updates.shared.automaticallyChecks
     @State private var newPresetName = ""
@@ -98,6 +100,19 @@ private struct SettingsView: View {
                 Text("A preset saves which displays are on, the main display, and the resolution, rotation, and brightness of each display.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+            }
+
+            Section {
+                LabeledContent {
+                    Button {
+                        NSWorkspace.shared.open(Self.coffeeURL)
+                    } label: {
+                        Label("Buy Me a Coffee", systemImage: "cup.and.saucer.fill")
+                    }
+                } label: {
+                    Text("Support OpenDisplay")
+                    Text("OpenDisplay is free. If it is useful to you, you can buy me a coffee.")
+                }
             }
         }
         .formStyle(.grouped)
