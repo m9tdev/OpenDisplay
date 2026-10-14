@@ -280,10 +280,12 @@ final class CalibrationSession {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
         if let screen = Self.screen(builtin.id) {
-            panel.layoutIfNeeded()
+            // The window has no size yet, because SwiftUI sets it later. So use the size of the content.
+            panel.setContentSize(hosting.view.fittingSize)
             let size = panel.frame.size
             panel.setFrameOrigin(NSPoint(x: screen.frame.midX - size.width / 2, y: screen.frame.midY - size.height / 2))
         }
+        NSApp.activate()
         panel.makeKeyAndOrderFront(nil)
         windows.append(panel)
     }
@@ -385,7 +387,7 @@ private struct CalibrationView: View {
                 Button("Save") { session.save() }
                     .keyboardShortcut(.defaultAction)
             } else {
-                if session.step != .lowest {
+                if session.step != session.steps[0] {
                     Button("Back") { session.back() }
                 }
                 Button("Next") { session.next() }
