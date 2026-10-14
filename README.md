@@ -13,7 +13,7 @@ A free macOS menu bar app to control your displays. It looks and works like the 
 
 ## Features
 
-- **Brightness** for the built-in display and for external displays (over DDC/CI). All sliders follow the macOS brightness curve, so the displays match.
+- **Brightness** for the built-in display and for external displays (over DDC/CI). All sliders follow the macOS brightness curve, so the displays match. To match them better, calibrate an external display by eye in Settings.
 - **Darker than the minimum:** below the lowest backlight level of an external display, the image gets darker in software, down to black.
 - **Sync** an external display with the built-in display, so the brightness keys and automatic brightness also change it.
 - **Brightness and volume keys** for external displays, with an on-screen indicator.

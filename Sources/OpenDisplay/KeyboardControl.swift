@@ -118,6 +118,17 @@ final class KeyboardControl {
 
         switch key {
         case .brightnessUp, .brightnessDown:
+            let up = key == .brightnessUp
+            // Above the built-in display's maximum, only the synced displays can go brighter, so change their
+            // shared brightness here. macOS cannot.
+            if let display = displayUnderPointer(), display.isBuiltin || manager.isSynced(display),
+               manager.keyChangesSharedBrightness(up: up), let value = manager.sharedBrightness {
+                if keyDown {
+                    manager.setSharedBrightness(value + (up ? step : -step))
+                    OSD.show(.brightness, value: manager.sharedBrightness ?? 0, on: display.id)
+                }
+                return nil
+            }
             // The built-in display, and an external display that follows it: macOS changes the built-in display,
             // and the sync changes the external display.
             guard let display = displayUnderPointer(), !display.isBuiltin, !manager.isSynced(display),
@@ -125,7 +136,7 @@ final class KeyboardControl {
                 return Unmanaged.passUnretained(event)
             }
             if keyDown {
-                manager.setBrightness(display, to: value + (key == .brightnessUp ? step : -step))
+                manager.setBrightness(display, to: value + (up ? step : -step))
                 OSD.show(.brightness, value: display.brightness ?? 0, on: display.id)
             }
             return nil

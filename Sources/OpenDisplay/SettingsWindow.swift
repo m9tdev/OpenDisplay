@@ -83,6 +83,22 @@ private struct SettingsView: View {
                 }
             }
 
+            if !calibratable.isEmpty {
+                Section {
+                    ForEach(calibratable) { display in
+                        calibrationRow(display)
+                    }
+                } header: {
+                    Text("Brightness Calibration")
+                } footer: {
+                    Text(hasBuiltin
+                        ? "Match the brightness of an external display with the built-in display, by eye. Then their brightness sliders and brightness sync match better."
+                        : "Calibration needs the built-in display. Open the lid of your Mac, then try again.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Section {
                 ForEach(store.presets, id: \.name) { preset in
                     presetRow(preset)
@@ -123,6 +139,41 @@ private struct SettingsView: View {
             hasPermission = KeyboardControl.hasPermission
             launchAtLogin = SMAppService.mainApp.status == .enabled
         }
+    }
+
+    /// External displays. Without DDC, the calibration uses software dimming.
+    private var calibratable: [Display] {
+        manager.displays.filter { !$0.isBuiltin && $0.isEnabled }
+    }
+
+    private var hasBuiltin: Bool {
+        manager.displays.contains { $0.isBuiltin && $0.isEnabled && $0.hasHardwareBrightness }
+    }
+
+    private func calibrationRow(_ display: Display) -> some View {
+        let calibration = manager.calibration(for: display)
+        let changed = calibration?.changedSettings(display.monitorSettings) ?? []
+        return LabeledContent {
+            HStack {
+                if calibration != nil {
+                    Button("Reset") { manager.setCalibration(nil, for: display) }
+                }
+                Button("Calibrate…") { CalibrationSession.start(external: display, manager: manager) }
+                    .disabled(!hasBuiltin)
+            }
+        } label: {
+            Text(display.name)
+            Text(calibration.map { "Calibrated on \($0.date.formatted(date: .abbreviated, time: .omitted))" } ?? "Not calibrated")
+            if !changed.isEmpty {
+                Text("Calibrated with other monitor settings (\(changed.joined(separator: ", ").lowercased())). Calibrate again.")
+                    .foregroundStyle(.orange)
+            }
+        }
+        // The settings can change with the monitor's own buttons, so read them each time the window opens.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            manager.readMonitorSettings(display)
+        }
+        .onAppear { manager.readMonitorSettings(display) }
     }
 
     private func presetRow(_ preset: Preset) -> some View {

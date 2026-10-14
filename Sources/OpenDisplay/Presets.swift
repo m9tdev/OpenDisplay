@@ -133,9 +133,12 @@ extension DisplayManager {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                         MainActor.assumeIsolated {
                             self.refresh()
-                            for (id, state) in steps where state.isEnabled {
-                                guard let brightness = state.brightness,
-                                      let display = self.displays.first(where: { $0.id == id }) else { continue }
+                            // Synced displays last: their shared brightness also sets the built-in display.
+                            let displays = steps.filter(\.1.isEnabled).compactMap { id, state in
+                                self.displays.first { $0.id == id }.map { ($0, state) }
+                            }
+                            for (display, state) in displays.sorted(by: { !self.isSynced($0.0) && self.isSynced($1.0) }) {
+                                guard let brightness = state.brightness else { continue }
                                 self.setBrightness(display, to: brightness)
                             }
                         }

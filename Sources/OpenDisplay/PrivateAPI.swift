@@ -36,6 +36,25 @@ enum PrivateAPI {
     static let registerForBrightnessChanges = symbol(
         "DisplayServicesRegisterForBrightnessChangeNotifications", in: displayServices, as: RegisterForBrightnessChanges.self)
 
+    /// Automatic brightness (from the light sensor).
+    typealias GetAutoBrightness = @convention(c) (CGDirectDisplayID, UnsafeMutablePointer<Bool>) -> Int32
+    typealias SetAutoBrightness = @convention(c) (CGDirectDisplayID, Bool) -> Int32
+
+    static let getAutoBrightness = symbol(
+        "DisplayServicesAmbientLightCompensationEnabled", in: displayServices, as: GetAutoBrightness.self)
+    static let setAutoBrightness = symbol(
+        "DisplayServicesEnableAmbientLightCompensation", in: displayServices, as: SetAutoBrightness.self)
+
+    // MARK: CoreBrightness (True Tone)
+
+    private static let coreBrightness = dlopen("/System/Library/PrivateFrameworks/CoreBrightness.framework/CoreBrightness", RTLD_LAZY)
+
+    /// `CBTrueToneClient`, with the key-value properties `supported` and `enabled`.
+    static func trueToneClient() -> NSObject? {
+        _ = coreBrightness
+        return (NSClassFromString("CBTrueToneClient") as? NSObject.Type)?.init()
+    }
+
     // MARK: SkyLight (display enable/disable)
 
     typealias ConfigureDisplayEnabled = @convention(c) (CGDisplayConfigRef, CGDirectDisplayID, Bool) -> CGError
