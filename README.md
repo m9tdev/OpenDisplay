@@ -96,6 +96,12 @@ OpenDisplay uses private macOS APIs, because macOS has no public APIs for these 
 
 The app loads these APIs at runtime. If a macOS update removes one, only the feature that uses it stops working.
 
+## Support
+
+OpenDisplay is free. If it is useful to you, you can buy me a coffee:
+
+<a href="https://buymeacoffee.com/m9tdev"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" height="44" alt="Buy Me a Coffee"></a>
+
 ## License
 
 MIT
