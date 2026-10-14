@@ -26,5 +26,11 @@
 	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://github.com/m9tdev/OpenDisplay/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>nkc8lQT42q407sZexMrpxUPGPBClgbjXJSzjrwwZOdc=</string>
 </dict>
 </plist>

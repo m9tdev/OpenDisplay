@@ -18,6 +18,13 @@ enum OpenDisplayApp {
         let manager = DisplayManager()
         let keyboard = KeyboardControl(manager: manager)
         statusMenu = StatusMenu(manager: manager, keyboard: keyboard)
+        Updates.shared.start()
+        // Debug helper: `OpenDisplay --check-for-updates` checks for an update at launch, for update tests.
+        if CommandLine.arguments.contains("--check-for-updates") {
+            Timer.scheduledTimer(withTimeInterval: 2, repeats: false) { _ in
+                MainActor.assumeIsolated { Updates.shared.checkForUpdatesInBackground() }
+            }
+        }
         openDebugSettings(manager: manager, keyboard: keyboard)
         app.run()
     }

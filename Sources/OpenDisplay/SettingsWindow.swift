@@ -48,6 +48,7 @@ private struct SettingsView: View {
     @State private var keysEnabled = KeyboardControl.isEnabled
     @State private var hasPermission = KeyboardControl.hasPermission
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var checksForUpdates = Updates.shared.automaticallyChecks
     @State private var newPresetName = ""
     @State private var error: String?
 
@@ -58,6 +59,13 @@ private struct SettingsView: View {
         Form {
             Section {
                 Toggle("Launch at Login", isOn: Binding(get: { launchAtLogin }, set: setLaunchAtLogin))
+                Toggle(isOn: Binding(get: { checksForUpdates }, set: { enabled in
+                    Updates.shared.automaticallyChecks = enabled
+                    checksForUpdates = enabled
+                })) {
+                    Text("Check for Updates Automatically")
+                    Text("Once a day. OpenDisplay asks before it installs an update.")
+                }
                 Toggle(isOn: Binding(get: { keysEnabled }, set: setKeysEnabled)) {
                     Text("Brightness and Volume Keys")
                     Text("Also for external displays: the display under the pointer, and the display that plays the sound.")

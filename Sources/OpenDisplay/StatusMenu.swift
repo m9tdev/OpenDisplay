@@ -235,6 +235,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
+        let updates = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+        updates.target = self
+        menu.addItem(updates)
         let displays = NSMenuItem(title: "Displays Settings…", action: #selector(openDisplaySettings), keyEquivalent: "")
         displays.target = self
         menu.addItem(displays)
@@ -242,7 +245,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(quit)
         // macOS adds a gear and an X icon to these standard items by itself. No other item has an icon.
         if #available(macOS 27, *) {
-            for item in [settings, displays, quit] { item.preferredImageVisibility = .hidden }
+            for item in [settings, updates, displays, quit] { item.preferredImageVisibility = .hidden }
         }
     }
 
@@ -257,6 +260,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     @objc private func openSettings() {
         // The menu is still closing now, and macOS does not activate an app during that. So wait a moment.
         after(0.1) { SettingsWindow.show(manager: $0.manager, keyboard: $0.keyboard) }
+    }
+
+    @objc private func checkForUpdates() {
+        // Like Settings: wait until the menu has closed, so the update window can come to the front.
+        after(0.1) { _ in Updates.shared.checkForUpdates() }
     }
 
     @objc private func openDisplaySettings() {
