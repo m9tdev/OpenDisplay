@@ -98,7 +98,13 @@ extension DisplayManager {
             if turnsOn.contains(state.id) { state.isActive = true }
             return state
         }
-        guard DisplayPolicy.canDisable(Set(targets.filter { !$0.state.isEnabled }.map(\.id)), in: after) else {
+        let turnsOff = Set(targets.filter { !$0.state.isEnabled }.map(\.id))
+        let allowed = DisplayPolicy.canDisable(turnsOff, in: after)
+        Self.log.notice("""
+            Preset \(preset.name, privacy: .public): turns off \(turnsOff.sorted(), privacy: .public), \
+            \(allowed ? "allowed" : "refused", privacy: .public); after: \(Self.describe(after), privacy: .public)
+            """)
+        guard allowed else {
             lastError = "This preset turns off all displays."
             return
         }
@@ -131,7 +137,9 @@ extension DisplayManager {
             var turnedOff: Set<CGDirectDisplayID> = []
             for (id, state) in steps where !state.isEnabled && CGDisplayIsActive(id) != 0 {
                 // Check again with the displays as they are now: a display may have failed to turn on.
-                guard DisplayPolicy.canDisable([id], in: Self.liveStates(disabled: [])) else {
+                let live = Self.liveStates(disabled: [])
+                guard DisplayPolicy.canDisable([id], in: live) else {
+                    Self.log.notice("Preset: \(id, privacy: .public) stays on; displays: \(Self.describe(live), privacy: .public)")
                     errors.append("\(state.name) stays on: no other display is on.")
                     continue
                 }

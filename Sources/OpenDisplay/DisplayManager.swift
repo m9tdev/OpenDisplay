@@ -2,6 +2,7 @@ import AppKit
 import CoreGraphics
 import DisplayPolicy
 import Observation
+import os
 
 @MainActor
 @Observable
@@ -109,12 +110,14 @@ final class DisplayManager {
         observer = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
+            Self.log.notice("Screen parameters changed")
             MainActor.assumeIsolated { self?.scheduleRefresh() }
         }
         // After sleep, a display may have gone away (see `keepADisplayOn`).
         let workspace = NSWorkspace.shared.notificationCenter
         wakeObservers = [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification].map { name in
             workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Self.log.notice("Wake: \(name.rawValue, privacy: .public)")
                 MainActor.assumeIsolated { self?.scheduleRefresh() }
             }
         }
@@ -498,9 +501,17 @@ final class DisplayManager {
             lastError = "This macOS version does not support turning displays off."
             return
         }
-        if !enabled, !DisplayPolicy.canDisable([display.id], in: states) {
-            lastError = "You cannot turn off the last display that is on."
-            return
+        if !enabled {
+            let states = self.states
+            let allowed = DisplayPolicy.canDisable([display.id], in: states)
+            Self.log.notice("""
+                Turn off \(display.id, privacy: .public): \(allowed ? "allowed" : "refused", privacy: .public); \
+                displays: \(Self.describe(states), privacy: .public)
+                """)
+            guard allowed else {
+                lastError = "You cannot turn off the last display that is on."
+                return
+            }
         }
 
         let id = display.id
@@ -562,27 +573,61 @@ final class DisplayManager {
         (CGDisplayCopyAllDisplayModes(id, nil) as? [CGDisplayMode])?.count ?? 0
     }
 
+    /// The on/off decisions (`DisplayPolicy`), so a failure can be read later:
+    /// `log show --predicate 'subsystem == "dev.m9t.OpenDisplay"' --info`.
+    nonisolated static let log = Logger(subsystem: "dev.m9t.OpenDisplay", category: "displays")
+
+    /// The states with what macOS reports about each display now, for the log.
+    nonisolated static func describe(_ states: [DisplayState]) -> String {
+        states.map { state in
+            let id = state.id
+            return "\(id)[builtin \(state.isBuiltin), online \(state.isOnline), active \(state.isActive), "
+                + "virtual \(state.isVirtual), ours \(state.isDisabledByUs), "
+                + String(format: "vendor %08X, model %08X, ", CGDisplayVendorNumber(id), CGDisplayModelNumber(id))
+                + "modes \(modeCount(id)), \(Int(CGDisplayPixelsWide(id)))x\(Int(CGDisplayPixelsHigh(id)))]"
+        }.joined(separator: " ")
+    }
+
     @ObservationIgnored private var isRestoring = false
+    /// Tries after a failed attempt to turn a display on again, before the next display change.
+    private static let restoreRetries = 3
 
     /// When the last physical display that is on goes away (for example, the TV is unplugged while OpenDisplay has
     /// the built-in display off), macOS does not turn another display on: it shows a virtual placeholder display, and
     /// the Mac has no screen. Then turn on a display that OpenDisplay turned off, the built-in display first.
     /// `refresh` calls this: at launch, after each change of the displays, and after wake.
-    private func keepADisplayOn() {
-        guard let configure = PrivateAPI.configureDisplayEnabled, changing.isEmpty, !isRestoring else { return }
+    private func keepADisplayOn(retry: Int = 0) {
+        guard let configure = PrivateAPI.configureDisplayEnabled else { return }
+        guard changing.isEmpty, !isRestoring else {
+            Self.log.notice("Keep a display on: skipped (changing \(self.changing.count, privacy: .public), restoring \(self.isRestoring, privacy: .public))")
+            return
+        }
         let disabled = self.disabled
-        guard !DisplayPolicy.displaysToRestore(in: Self.liveStates(disabled: Set(disabled.keys))).isEmpty else { return }
+        let states = Self.liveStates(disabled: Set(disabled.keys))
+        let candidates = DisplayPolicy.displaysToRestore(in: states)
+        Self.log.notice("""
+            Keep a display on: turn on \(candidates, privacy: .public); \
+            displays: \(Self.describe(states), privacy: .public)
+            """)
+        guard !candidates.isEmpty else { return }
         isRestoring = true
         // Wait a moment: after wake, a display can take a few seconds to come back on by itself.
         configQueue.asyncAfter(deadline: .now() + 2) {
             // Check again: the displays may have changed, also by a toggle or a preset before this in the queue.
-            let candidates = DisplayPolicy.displaysToRestore(in: Self.liveStates(disabled: Set(disabled.keys)))
+            let states = Self.liveStates(disabled: Set(disabled.keys))
+            let candidates = DisplayPolicy.displaysToRestore(in: states)
+            Self.log.notice("""
+                Keep a display on, check again: turn on \(candidates, privacy: .public); \
+                displays: \(Self.describe(states), privacy: .public)
+                """)
             var restored: CGDirectDisplayID?
             var errors: [String] = []
             for id in candidates {
                 if let error = Self.applyEnabled(id, true, name: disabled[id] ?? "Display \(id)", configure: configure) {
+                    Self.log.error("Keep a display on: \(error, privacy: .public)")
                     errors.append(error)
                 } else {
+                    Self.log.notice("Keep a display on: turned on \(id, privacy: .public)")
                     restored = id
                     break
                 }
@@ -592,8 +637,14 @@ final class DisplayManager {
                 MainActor.assumeIsolated {
                     self.isRestoring = false
                     guard let restored else {
-                        // No new refresh: it would only try again, and fail again.
-                        if let error { self.lastError = error }
+                        guard let error else { return }
+                        self.lastError = error
+                        // Right after a display goes away, macOS may refuse. Try a few more times, not forever.
+                        if retry < Self.restoreRetries {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                                MainActor.assumeIsolated { self.keepADisplayOn(retry: retry + 1) }
+                            }
+                        }
                         return
                     }
                     var disabled = self.disabled
