@@ -20,6 +20,7 @@ let package = Package(
                 .linkedFramework("CoreGraphics"),
             ]
         ),
+        .testTarget(name: "DisplayPolicyTests", dependencies: ["DisplayPolicy"], path: "Tests/DisplayPolicyTests"),
     ],
     swiftLanguageModes: [.v5]
 )
