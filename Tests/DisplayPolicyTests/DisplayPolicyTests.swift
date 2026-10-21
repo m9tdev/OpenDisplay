@@ -12,13 +12,14 @@ final class DisplayPolicyTests: XCTestCase {
 
     func testThePlaceholderOfMacOSIsVirtual() {
         // "unkn" and "virt": what macOS reported for the display it made when the built-in display was off.
-        XCTAssertTrue(DisplayPolicy.isVirtual(vendor: 0x756E_6B6E, model: 0x7669_7274, isBuiltin: false))
+        XCTAssertTrue(DisplayPolicy.isVirtual(vendor: 0x756E_6B6E, model: 0x7669_7274, isBuiltin: false, modeCount: 1))
     }
 
     func testRealDisplaysAreNotVirtual() {
-        // The built-in display of a MacBook Pro, and a TV (Samsung).
-        XCTAssertFalse(DisplayPolicy.isVirtual(vendor: 0x0610, model: 0xA04F, isBuiltin: true))
-        XCTAssertFalse(DisplayPolicy.isVirtual(vendor: 0x4C2D, model: 0x0E36, isBuiltin: false))
+        // The built-in display of a MacBook Pro, a Samsung TV, and the Philips TV of the bug (its model number is 0).
+        XCTAssertFalse(DisplayPolicy.isVirtual(vendor: 0x0610, model: 0xA04F, isBuiltin: true, modeCount: 132))
+        XCTAssertFalse(DisplayPolicy.isVirtual(vendor: 0x4C2D, model: 0x0E36, isBuiltin: false, modeCount: 58))
+        XCTAssertFalse(DisplayPolicy.isVirtual(vendor: 0x410C, model: 0, isBuiltin: false, modeCount: 135))
     }
 
     // MARK: Turning a display off

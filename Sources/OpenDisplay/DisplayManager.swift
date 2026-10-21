@@ -47,7 +47,8 @@ final class Display: Identifiable {
         self.name = name
         self.isBuiltin = CGDisplayIsBuiltin(id) != 0
         self.isVirtual = DisplayPolicy.isVirtual(
-            vendor: CGDisplayVendorNumber(id), model: CGDisplayModelNumber(id), isBuiltin: isBuiltin)
+            vendor: CGDisplayVendorNumber(id), model: CGDisplayModelNumber(id), isBuiltin: isBuiltin,
+            modeCount: DisplayManager.modeCount(id))
     }
 
     /// Identifies the external display across reconnects and restarts (the display ID can change).
@@ -546,13 +547,16 @@ final class DisplayManager {
         ids += list(CGGetActiveDisplayList).filter { !ids.contains($0) }
         ids += disabled.sorted().filter { !ids.contains($0) }
         return ids.map { id in
-            let builtin = CGDisplayIsBuiltin(id) != 0
-            return DisplayState(
-                id: id, isBuiltin: builtin, isOnline: CGDisplayIsOnline(id) != 0, isActive: CGDisplayIsActive(id) != 0,
-                isVirtual: DisplayPolicy.isVirtual(vendor: CGDisplayVendorNumber(id), model: CGDisplayModelNumber(id),
-                                                   isBuiltin: builtin),
-                isDisabledByUs: disabled.contains(id))
+            DisplayState(
+                id: id, isBuiltin: CGDisplayIsBuiltin(id) != 0, isOnline: CGDisplayIsOnline(id) != 0,
+                isActive: CGDisplayIsActive(id) != 0, vendor: CGDisplayVendorNumber(id), model: CGDisplayModelNumber(id),
+                modeCount: modeCount(id), isDisabledByUs: disabled.contains(id))
         }
+    }
+
+    /// The number of display modes macOS has for the display. Safe on any thread.
+    nonisolated static func modeCount(_ id: CGDirectDisplayID) -> Int {
+        (CGDisplayCopyAllDisplayModes(id, nil) as? [CGDisplayMode])?.count ?? 0
     }
 
     @ObservationIgnored private var isRestoring = false
