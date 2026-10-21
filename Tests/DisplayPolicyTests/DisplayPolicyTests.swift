@@ -107,3 +107,63 @@ private extension DisplayState {
         return state
     }
 }
+
+/// The state on the Mac when the fix of PR #3 did not work (2026-10-21 10:33): the only online display was the
+/// placeholder of macOS (ID 7, not built-in, 1920x1080), and the built-in display (ID 1) was offline and in
+/// disabledDisplays. Inside OpenDisplay, macOS could not give the placeholder's display info ("error requesting display
+/// info dictionary"), so its vendor and model were not "unkn" and "virt", and it counted as a physical display.
+final class StandInDisplayTests: XCTestCase {
+    /// The built-in display as macOS reports it while it is off: offline, with vendor and model 0xFFFFFFFF, and maybe
+    /// not even built-in.
+    let builtinOff = DisplayState(id: 1, isBuiltin: false, isOnline: false, isActive: false, vendor: 0xFFFF_FFFF,
+                                  model: 0xFFFF_FFFF, modeCount: 0, isDisabledByUs: true)
+
+    func standIn(vendor: UInt32, model: UInt32, modeCount: Int) -> DisplayState {
+        DisplayState(id: 7, isBuiltin: false, isOnline: true, isActive: true, vendor: vendor, model: model,
+                     modeCount: modeCount, isDisabledByUs: false)
+    }
+
+    func testAStandInWithAnUnreadableIdentityIsNotAPhysicalDisplay() {
+        XCTAssertTrue(DisplayPolicy.isVirtual(vendor: 0xFFFF_FFFF, model: 0xFFFF_FFFF, isBuiltin: false, modeCount: 1))
+        XCTAssertTrue(DisplayPolicy.isVirtual(vendor: 0, model: 0, isBuiltin: false, modeCount: 1))
+    }
+
+    func testAStandInWithoutDisplayModesIsNotAPhysicalDisplay() {
+        // WindowServer: "Returning empty mode list, all CA modes are virtual".
+        XCTAssertTrue(DisplayPolicy.isVirtual(vendor: 0x1234, model: 0x5678, isBuiltin: false, modeCount: 0))
+    }
+
+    func testTheBuiltinDisplayTurnsOnAgainWhenTheStandInsIdentityIsUnreadable() {
+        for (vendor, model) in [(UInt32(0xFFFF_FFFF), UInt32(0xFFFF_FFFF)), (0, 0)] {
+            let states = [standIn(vendor: vendor, model: model, modeCount: 1), builtinOff]
+            XCTAssertEqual(DisplayPolicy.displaysToRestore(in: states), [1], "vendor \(vendor), model \(model)")
+        }
+    }
+
+    func testTheBuiltinDisplayTurnsOnAgainWhenTheStandInHasNoDisplayModes() {
+        let states = [standIn(vendor: 0x1234, model: 0x5678, modeCount: 0), builtinOff]
+        XCTAssertEqual(DisplayPolicy.displaysToRestore(in: states), [1])
+    }
+
+    func testTheBuiltinDisplayTurnsOnAgainWithTheKnownPlaceholder() {
+        let states = [standIn(vendor: 0x756E_6B6E, model: 0x7669_7274, modeCount: 1), builtinOff]
+        XCTAssertEqual(DisplayPolicy.displaysToRestore(in: states), [1])
+    }
+
+    func testNothingTurnsOnWhileTheTVIsOn() {
+        // The Philips TV of the bug: vendor 0x410C, model 0.
+        let tv = DisplayState(id: 3, isBuiltin: false, isOnline: true, isActive: true, vendor: 0x410C, model: 0,
+                              modeCount: 135, isDisabledByUs: false)
+        XCTAssertEqual(DisplayPolicy.displaysToRestore(in: [tv, builtinOff]), [])
+    }
+
+    func testTheStandInDoesNotLetTheLastPhysicalDisplayTurnOff() {
+        var builtinOn = builtinOff
+        builtinOn.isBuiltin = true
+        builtinOn.isOnline = true
+        builtinOn.isActive = true
+        builtinOn.isDisabledByUs = false
+        let states = [standIn(vendor: 0xFFFF_FFFF, model: 0xFFFF_FFFF, modeCount: 1), builtinOn]
+        XCTAssertFalse(DisplayPolicy.canDisable([1], in: states))
+    }
+}
