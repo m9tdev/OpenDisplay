@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import DisplayPolicy
 import Observation
 
 @MainActor
@@ -480,7 +481,7 @@ final class DisplayManager {
             lastError = "This macOS version does not support turning displays off."
             return
         }
-        if !enabled, displays.filter(\.isEnabled).count <= 1 {
+        if !enabled, !DisplayPolicy.canDisable([display.id], in: states) {
             lastError = "You cannot turn off the last display."
             return
         }
@@ -506,6 +507,15 @@ final class DisplayManager {
                     self.scheduleRefresh()
                 }
             }
+        }
+    }
+
+    /// The displays in the list, for `DisplayPolicy`. A display with a change in progress has its new state.
+    private var states: [DisplayState] {
+        let disabled = self.disabled
+        return displays.map {
+            DisplayState(id: $0.id, isBuiltin: $0.isBuiltin, isOnline: CGDisplayIsOnline($0.id) != 0,
+                         isActive: $0.isEnabled, isDisabledByUs: disabled[$0.id] != nil)
         }
     }
 
