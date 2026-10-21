@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import DisplayPolicy
 import Observation
 
 /// A saved display setup, for example "Desk" or "Laptop only".
@@ -90,13 +91,31 @@ extension DisplayManager {
             lastError = "This preset turns off all displays."
             return
         }
+        // After the preset, a physical display must be on (a virtual display does not count, see `DisplayPolicy`).
+        let turnsOn = Set(targets.filter(\.state.isEnabled).map(\.id))
+        let after = states.map { state in
+            var state = state
+            if turnsOn.contains(state.id) { state.isActive = true }
+            return state
+        }
+        let turnsOff = Set(targets.filter { !$0.state.isEnabled }.map(\.id))
+        let allowed = DisplayPolicy.canDisable(turnsOff, in: after)
+        Self.log.notice("""
+            Preset \(preset.name, privacy: .public): turns off \(turnsOff.sorted(), privacy: .public), \
+            \(allowed ? "allowed" : "refused", privacy: .public); after: \(Self.describe(after), privacy: .public)
+            """)
+        guard allowed else {
+            lastError = "This preset turns off all displays."
+            return
+        }
         lastError = nil
         let steps = targets
 
         configQueue.async {
             var errors: [String] = []
             // Turn displays on first, so there is always a display that is on.
-            for (id, state) in steps where state.isEnabled && CGDisplayIsActive(id) == 0 {
+            // From the list: CGDisplayIsActive returns -1 for a display that is off (see `DisplayPolicy.states`).
+            for (id, state) in steps where state.isEnabled && !Self.activeDisplays().contains(id) {
                 if let error = Self.applyEnabled(id, true, name: state.name, configure: configure) { errors.append(error) }
             }
             for (id, state) in steps where state.isEnabled {
@@ -116,14 +135,27 @@ extension DisplayManager {
             if let main = steps.first(where: { $0.state.isEnabled && $0.state.isMain }), !DisplayArrangement.isMain(main.id) {
                 if let error = DisplayArrangement.setMain(main.id) { errors.append(error) }
             }
-            for (id, state) in steps where !state.isEnabled && CGDisplayIsActive(id) != 0 {
-                if let error = Self.applyEnabled(id, false, name: state.name, configure: configure) { errors.append(error) }
+            var turnedOff: Set<CGDirectDisplayID> = []
+            for (id, state) in steps where !state.isEnabled && Self.activeDisplays().contains(id) {
+                // Check again with the displays as they are now: a display may have failed to turn on.
+                let live = Self.liveStates(disabled: [])
+                guard DisplayPolicy.canDisable([id], in: live) else {
+                    Self.log.notice("Preset: \(id, privacy: .public) stays on; displays: \(Self.describe(live), privacy: .public)")
+                    errors.append("\(state.name) stays on: no other display is on.")
+                    continue
+                }
+                if let error = Self.applyEnabled(id, false, name: state.name, configure: configure) {
+                    errors.append(error)
+                } else {
+                    turnedOff.insert(id)
+                }
             }
 
+            let off = turnedOff
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     var disabled = self.disabled
-                    for (id, state) in steps {
+                    for (id, state) in steps where state.isEnabled || off.contains(id) {
                         disabled[id] = state.isEnabled ? nil : state.name
                     }
                     self.disabled = disabled

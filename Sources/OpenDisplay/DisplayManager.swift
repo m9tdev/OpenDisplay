@@ -1,13 +1,24 @@
 import AppKit
 import CoreGraphics
+import DisplayPolicy
 import Observation
+import os
 
 @MainActor
 @Observable
 final class Display: Identifiable {
     let id: CGDirectDisplayID
     var name: String
-    let isBuiltin: Bool
+    /// Read again when the display is on: macOS does not know a display that is off (see `DisplayPolicy.states`).
+    fileprivate(set) var isBuiltin: Bool
+    /// Not a real screen, such as the placeholder that macOS makes when no display is on (see `DisplayPolicy`).
+    /// Read each time: right after a display connects, macOS may not know its modes yet. A display that is off is not
+    /// virtual: macOS has no identity for it then.
+    var isVirtual: Bool {
+        DisplayManager.activeDisplays().contains(id) && DisplayPolicy.isVirtual(
+            vendor: CGDisplayVendorNumber(id), model: CGDisplayModelNumber(id), isBuiltin: isBuiltin,
+            modeCount: DisplayManager.modeCount(id))
+    }
     var isEnabled = true
     /// 0...1, the position of the brightness slider. `nil` while we do not know the value yet.
     /// The lowest part of the range dims the image in software (see `DisplayManager.setBrightness`).
@@ -42,7 +53,8 @@ final class Display: Identifiable {
     init(id: CGDirectDisplayID, name: String) {
         self.id = id
         self.name = name
-        self.isBuiltin = CGDisplayIsBuiltin(id) != 0
+        // -1 for a display macOS does not know now (see `DisplayPolicy.states`).
+        self.isBuiltin = DisplayPolicy.isTrue(CGDisplayIsBuiltin(id))
     }
 
     /// Identifies the external display across reconnects and restarts (the display ID can change).
@@ -77,6 +89,7 @@ final class DisplayManager {
 
     @ObservationIgnored private var byID: [CGDirectDisplayID: Display] = [:]
     @ObservationIgnored private var observer: NSObjectProtocol?
+    @ObservationIgnored private var wakeObservers: [NSObjectProtocol] = []
     @ObservationIgnored private var pendingRefresh: DispatchWorkItem?
 
     /// Displays we turned off, with their names. Kept so they stay in the list (and survive an app restart).
@@ -99,7 +112,16 @@ final class DisplayManager {
         observer = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
+            Self.log.notice("Screen parameters changed")
             MainActor.assumeIsolated { self?.scheduleRefresh() }
+        }
+        // After sleep, a display may have gone away (see `keepADisplayOn`).
+        let workspace = NSWorkspace.shared.notificationCenter
+        wakeObservers = [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification].map { name in
+            workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Self.log.notice("Wake: \(name.rawValue, privacy: .public)")
+                MainActor.assumeIsolated { self?.scheduleRefresh() }
+            }
         }
     }
 
@@ -114,22 +136,22 @@ final class DisplayManager {
     }
 
     func refresh() {
-        var online = [CGDirectDisplayID](repeating: 0, count: 16)
-        var count: UInt32 = 0
-        CGGetOnlineDisplayList(UInt32(online.count), &online, &count)
-        online = Array(online.prefix(Int(count)))
+        // From the lists: CGDisplayIsActive returns -1 for a display macOS does not know now (see `DisplayPolicy`).
+        let online = Self.onlineDisplays()
+        let active = Set(Self.activeDisplays())
 
         var disabled = self.disabled
         // A display that is active again (for example after a reboot or replug) is no longer "off".
-        for id in online where CGDisplayIsActive(id) != 0 {
+        for id in active {
             disabled[id] = nil
         }
         self.disabled = disabled
 
-        var ids = online.filter { CGDisplayIsActive($0) != 0 || disabled[$0] != nil }
+        var ids = online.filter { active.contains($0) || disabled[$0] != nil }
+        ids += active.filter { !ids.contains($0) }
         ids += disabled.keys.filter { !ids.contains($0) }
 
-        let ddc = DDCDiscovery.services(for: ids.filter { CGDisplayIsActive($0) != 0 })
+        let ddc = DDCDiscovery.services(for: ids.filter { active.contains($0) })
 
         var next: [Display] = []
         for id in ids {
@@ -138,8 +160,9 @@ final class DisplayManager {
                 next.append(display)
                 continue
             }
-            display.isEnabled = CGDisplayIsActive(id) != 0
+            display.isEnabled = active.contains(id)
             if display.isEnabled {
+                display.isBuiltin = DisplayPolicy.isTrue(CGDisplayIsBuiltin(id))
                 display.name = Self.name(of: id)
                 if display.ddc == nil || ddc[id] == nil {
                     display.ddc = ddc[id]
@@ -173,6 +196,7 @@ final class DisplayManager {
         syncFromBuiltin()
         XDRBoost.shared.displaysChanged()
         revision += 1
+        keepADisplayOn()
     }
 
     // MARK: Brightness
@@ -480,9 +504,17 @@ final class DisplayManager {
             lastError = "This macOS version does not support turning displays off."
             return
         }
-        if !enabled, displays.filter(\.isEnabled).count <= 1 {
-            lastError = "You cannot turn off the last display."
-            return
+        if !enabled {
+            let states = self.states
+            let allowed = DisplayPolicy.canDisable([display.id], in: states)
+            Self.log.notice("""
+                Turn off \(display.id, privacy: .public): \(allowed ? "allowed" : "refused", privacy: .public); \
+                displays: \(Self.describe(states), privacy: .public)
+                """)
+            guard allowed else {
+                lastError = "You cannot turn off the last display that is on."
+                return
+            }
         }
 
         let id = display.id
@@ -503,6 +535,136 @@ final class DisplayManager {
                     var disabled = self.disabled
                     disabled[id] = enabled ? nil : name
                     self.disabled = disabled
+                    self.scheduleRefresh()
+                }
+            }
+        }
+    }
+
+    /// The displays in the list, for `DisplayPolicy`. A display with a change in progress has its new state.
+    var states: [DisplayState] {
+        let disabled = self.disabled
+        let online = Set(Self.onlineDisplays())
+        return displays.map {
+            DisplayState(id: $0.id, isBuiltin: $0.isBuiltin, isOnline: online.contains($0.id),
+                         isActive: $0.isEnabled, isVirtual: $0.isVirtual, isDisabledByUs: disabled[$0.id] != nil)
+        }
+    }
+
+    /// The displays as macOS reports them now, for `DisplayPolicy`: the online and active ones, and `disabled`
+    /// (displays we turned off), which may not be online. Safe on any thread.
+    nonisolated static func liveStates(disabled: Set<CGDirectDisplayID>) -> [DisplayState] {
+        let online = onlineDisplays(), active = activeDisplays()
+        var ids = online
+        ids += active.filter { !ids.contains($0) }
+        ids += disabled.sorted().filter { !ids.contains($0) }
+        let reports = ids.map { id in
+            DisplayReport(id: id, isBuiltin: CGDisplayIsBuiltin(id), isOnline: CGDisplayIsOnline(id),
+                          isActive: CGDisplayIsActive(id), vendor: CGDisplayVendorNumber(id),
+                          model: CGDisplayModelNumber(id), modeCount: modeCount(id))
+        }
+        return DisplayPolicy.states(online: online, active: active, reports: reports, disabled: disabled)
+    }
+
+    /// `CGGetOnlineDisplayList`. Safe on any thread.
+    nonisolated static func onlineDisplays() -> [CGDirectDisplayID] { list(CGGetOnlineDisplayList) }
+
+    /// `CGGetActiveDisplayList`. Safe on any thread.
+    nonisolated static func activeDisplays() -> [CGDirectDisplayID] { list(CGGetActiveDisplayList) }
+
+    private nonisolated static func list(
+        _ get: (UInt32, UnsafeMutablePointer<CGDirectDisplayID>?, UnsafeMutablePointer<UInt32>?) -> CGError
+    ) -> [CGDirectDisplayID] {
+        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
+        var count: UInt32 = 0
+        guard get(UInt32(ids.count), &ids, &count) == .success else { return [] }
+        return Array(ids.prefix(Int(count)))
+    }
+
+    /// The number of display modes macOS has for the display. Safe on any thread.
+    nonisolated static func modeCount(_ id: CGDirectDisplayID) -> Int {
+        (CGDisplayCopyAllDisplayModes(id, nil) as? [CGDisplayMode])?.count ?? 0
+    }
+
+    /// The on/off decisions (`DisplayPolicy`), so a failure can be read later:
+    /// `log show --predicate 'subsystem == "dev.m9t.OpenDisplay"' --info`.
+    nonisolated static let log = Logger(subsystem: "dev.m9t.OpenDisplay", category: "displays")
+
+    /// The states with what macOS reports about each display now, for the log.
+    nonisolated static func describe(_ states: [DisplayState]) -> String {
+        states.map { state in
+            let id = state.id
+            return "\(id)[builtin \(state.isBuiltin), online \(state.isOnline), active \(state.isActive), "
+                + "virtual \(state.isVirtual), ours \(state.isDisabledByUs), "
+                + "macOS answers builtin \(CGDisplayIsBuiltin(id)) online \(CGDisplayIsOnline(id)) active \(CGDisplayIsActive(id)), "
+                + String(format: "vendor %08X, model %08X, ", CGDisplayVendorNumber(id), CGDisplayModelNumber(id))
+                + "modes \(modeCount(id)), \(Int(CGDisplayPixelsWide(id)))x\(Int(CGDisplayPixelsHigh(id)))]"
+        }.joined(separator: " ")
+    }
+
+    @ObservationIgnored private var isRestoring = false
+    /// Tries after a failed attempt to turn a display on again, before the next display change.
+    private static let restoreRetries = 3
+
+    /// When the last physical display that is on goes away (for example, the TV is unplugged while OpenDisplay has
+    /// the built-in display off), macOS does not turn another display on: it shows a virtual placeholder display, and
+    /// the Mac has no screen. Then turn on a display that OpenDisplay turned off, the built-in display first.
+    /// `refresh` calls this: at launch, after each change of the displays, and after wake.
+    private func keepADisplayOn(retry: Int = 0) {
+        guard let configure = PrivateAPI.configureDisplayEnabled else { return }
+        guard changing.isEmpty, !isRestoring else {
+            Self.log.notice("Keep a display on: skipped (changing \(self.changing.count, privacy: .public), restoring \(self.isRestoring, privacy: .public))")
+            return
+        }
+        let disabled = self.disabled
+        let states = Self.liveStates(disabled: Set(disabled.keys))
+        let candidates = DisplayPolicy.displaysToRestore(in: states)
+        Self.log.notice("""
+            Keep a display on: turn on \(candidates, privacy: .public); \
+            displays: \(Self.describe(states), privacy: .public)
+            """)
+        guard !candidates.isEmpty else { return }
+        isRestoring = true
+        // Wait a moment: after wake, a display can take a few seconds to come back on by itself.
+        configQueue.asyncAfter(deadline: .now() + 2) {
+            // Check again: the displays may have changed, also by a toggle or a preset before this in the queue.
+            let states = Self.liveStates(disabled: Set(disabled.keys))
+            let candidates = DisplayPolicy.displaysToRestore(in: states)
+            Self.log.notice("""
+                Keep a display on, check again: turn on \(candidates, privacy: .public); \
+                displays: \(Self.describe(states), privacy: .public)
+                """)
+            var restored: CGDirectDisplayID?
+            var errors: [String] = []
+            for id in candidates {
+                if let error = Self.applyEnabled(id, true, name: disabled[id] ?? "Display \(id)", configure: configure) {
+                    Self.log.error("Keep a display on: \(error, privacy: .public)")
+                    errors.append(error)
+                } else {
+                    Self.log.notice("Keep a display on: turned on \(id, privacy: .public)")
+                    restored = id
+                    break
+                }
+            }
+            let error = errors.first
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self.isRestoring = false
+                    guard let restored else {
+                        guard let error else { return }
+                        self.lastError = error
+                        // Right after a display goes away, macOS may refuse. Try a few more times, not forever.
+                        if retry < Self.restoreRetries {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                                MainActor.assumeIsolated { self.keepADisplayOn(retry: retry + 1) }
+                            }
+                        }
+                        return
+                    }
+                    var disabled = self.disabled
+                    disabled[restored] = nil
+                    self.disabled = disabled
+                    self.byID[restored]?.isEnabled = true
                     self.scheduleRefresh()
                 }
             }
@@ -630,6 +792,6 @@ final class DisplayManager {
         if let screen = NSScreen.screens.first(where: { ($0.deviceDescription[key] as? CGDirectDisplayID) == id }) {
             return screen.localizedName
         }
-        return CGDisplayIsBuiltin(id) != 0 ? "Built-in Display" : "Display \(id)"
+        return DisplayPolicy.isTrue(CGDisplayIsBuiltin(id)) ? "Built-in Display" : "Display \(id)"
     }
 }
