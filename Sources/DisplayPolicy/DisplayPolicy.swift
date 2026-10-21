@@ -26,13 +26,25 @@ public struct DisplayState: Equatable, Sendable {
 /// When a display may turn off, and which display to turn on again.
 public enum DisplayPolicy {
     /// True for a display that is not a real screen, from its `CGDisplayVendorNumber` and `CGDisplayModelNumber`.
+    ///
+    /// When the last display that is on goes away (for example, the TV is unplugged while the built-in display is
+    /// off), macOS does not turn another display on: WindowServer makes a virtual placeholder display, with vendor
+    /// "unkn" and model "virt", and makes it the main display. The Mac then has no screen.
     public static func isVirtual(vendor: UInt32, model: UInt32, isBuiltin: Bool) -> Bool {
-        false
+        !isBuiltin && vendor == placeholderVendor && model == placeholderModel
     }
 
-    /// True if turning off the displays `ids` leaves a display on.
+    /// "unkn" and "virt", in ASCII.
+    static let placeholderVendor: UInt32 = 0x756E_6B6E
+    static let placeholderModel: UInt32 = 0x7669_7274
+
+    /// True if turning off the displays `ids` leaves a physical display on. Virtual displays do not count, because
+    /// you cannot see them. Only without any physical display (a Mac mini with virtual displays only) a virtual
+    /// display is enough.
     public static func canDisable(_ ids: Set<UInt32>, in displays: [DisplayState]) -> Bool {
-        displays.contains { $0.isActive && !ids.contains($0.id) }
+        let remaining = displays.filter { $0.isActive && !ids.contains($0.id) }
+        guard displays.contains(where: { !$0.isVirtual }) else { return !remaining.isEmpty }
+        return remaining.contains { !$0.isVirtual }
     }
 
     /// The displays to try to turn on again, in order, because no display is on. Empty if nothing needs to change.

@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import DisplayPolicy
 import Observation
 
 /// A saved display setup, for example "Desk" or "Laptop only".
@@ -90,6 +91,17 @@ extension DisplayManager {
             lastError = "This preset turns off all displays."
             return
         }
+        // After the preset, a physical display must be on (a virtual display does not count, see `DisplayPolicy`).
+        let turnsOn = Set(targets.filter(\.state.isEnabled).map(\.id))
+        let after = states.map { state in
+            var state = state
+            if turnsOn.contains(state.id) { state.isActive = true }
+            return state
+        }
+        guard DisplayPolicy.canDisable(Set(targets.filter { !$0.state.isEnabled }.map(\.id)), in: after) else {
+            lastError = "This preset turns off all displays."
+            return
+        }
         lastError = nil
         let steps = targets
 
@@ -116,14 +128,25 @@ extension DisplayManager {
             if let main = steps.first(where: { $0.state.isEnabled && $0.state.isMain }), !DisplayArrangement.isMain(main.id) {
                 if let error = DisplayArrangement.setMain(main.id) { errors.append(error) }
             }
+            var turnedOff: Set<CGDirectDisplayID> = []
             for (id, state) in steps where !state.isEnabled && CGDisplayIsActive(id) != 0 {
-                if let error = Self.applyEnabled(id, false, name: state.name, configure: configure) { errors.append(error) }
+                // Check again with the displays as they are now: a display may have failed to turn on.
+                guard DisplayPolicy.canDisable([id], in: Self.liveStates(disabled: [])) else {
+                    errors.append("\(state.name) stays on: no other display is on.")
+                    continue
+                }
+                if let error = Self.applyEnabled(id, false, name: state.name, configure: configure) {
+                    errors.append(error)
+                } else {
+                    turnedOff.insert(id)
+                }
             }
 
+            let off = turnedOff
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     var disabled = self.disabled
-                    for (id, state) in steps {
+                    for (id, state) in steps where state.isEnabled || off.contains(id) {
                         disabled[id] = state.isEnabled ? nil : state.name
                     }
                     self.disabled = disabled

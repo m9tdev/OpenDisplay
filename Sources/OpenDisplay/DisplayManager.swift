@@ -9,6 +9,8 @@ final class Display: Identifiable {
     let id: CGDirectDisplayID
     var name: String
     let isBuiltin: Bool
+    /// Not a real screen, such as the placeholder that macOS makes when no display is on (see `DisplayPolicy`).
+    let isVirtual: Bool
     var isEnabled = true
     /// 0...1, the position of the brightness slider. `nil` while we do not know the value yet.
     /// The lowest part of the range dims the image in software (see `DisplayManager.setBrightness`).
@@ -44,6 +46,8 @@ final class Display: Identifiable {
         self.id = id
         self.name = name
         self.isBuiltin = CGDisplayIsBuiltin(id) != 0
+        self.isVirtual = DisplayPolicy.isVirtual(
+            vendor: CGDisplayVendorNumber(id), model: CGDisplayModelNumber(id), isBuiltin: isBuiltin)
     }
 
     /// Identifies the external display across reconnects and restarts (the display ID can change).
@@ -482,7 +486,7 @@ final class DisplayManager {
             return
         }
         if !enabled, !DisplayPolicy.canDisable([display.id], in: states) {
-            lastError = "You cannot turn off the last display."
+            lastError = "You cannot turn off the last display that is on."
             return
         }
 
@@ -511,11 +515,34 @@ final class DisplayManager {
     }
 
     /// The displays in the list, for `DisplayPolicy`. A display with a change in progress has its new state.
-    private var states: [DisplayState] {
+    var states: [DisplayState] {
         let disabled = self.disabled
         return displays.map {
             DisplayState(id: $0.id, isBuiltin: $0.isBuiltin, isOnline: CGDisplayIsOnline($0.id) != 0,
-                         isActive: $0.isEnabled, isDisabledByUs: disabled[$0.id] != nil)
+                         isActive: $0.isEnabled, isVirtual: $0.isVirtual, isDisabledByUs: disabled[$0.id] != nil)
+        }
+    }
+
+    /// The displays as macOS reports them now, for `DisplayPolicy`: the online and active ones, and `disabled`
+    /// (displays we turned off), which may not be online. Safe on any thread.
+    nonisolated static func liveStates(disabled: Set<CGDirectDisplayID>) -> [DisplayState] {
+        func list(_ get: (UInt32, UnsafeMutablePointer<CGDirectDisplayID>?, UnsafeMutablePointer<UInt32>?) -> CGError)
+            -> [CGDirectDisplayID] {
+            var ids = [CGDirectDisplayID](repeating: 0, count: 16)
+            var count: UInt32 = 0
+            guard get(UInt32(ids.count), &ids, &count) == .success else { return [] }
+            return Array(ids.prefix(Int(count)))
+        }
+        var ids = list(CGGetOnlineDisplayList)
+        ids += list(CGGetActiveDisplayList).filter { !ids.contains($0) }
+        ids += disabled.sorted().filter { !ids.contains($0) }
+        return ids.map { id in
+            let builtin = CGDisplayIsBuiltin(id) != 0
+            return DisplayState(
+                id: id, isBuiltin: builtin, isOnline: CGDisplayIsOnline(id) != 0, isActive: CGDisplayIsActive(id) != 0,
+                isVirtual: DisplayPolicy.isVirtual(vendor: CGDisplayVendorNumber(id), model: CGDisplayModelNumber(id),
+                                                   isBuiltin: builtin),
+                isDisabledByUs: disabled.contains(id))
         }
     }
 
