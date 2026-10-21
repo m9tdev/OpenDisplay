@@ -48,7 +48,15 @@ public enum DisplayPolicy {
     }
 
     /// The displays to try to turn on again, in order, because no display is on. Empty if nothing needs to change.
+    /// Only displays that OpenDisplay turned off, and no virtual ones. The built-in display first, then the online
+    /// displays, then the others (macOS may report a display that is off as offline, and the built-in display
+    /// as not built-in then).
     public static func displaysToRestore(in displays: [DisplayState]) -> [UInt32] {
-        []
+        guard !displays.contains(where: { $0.isActive && !$0.isVirtual }) else { return [] }
+        func rank(_ display: DisplayState) -> Int { display.isBuiltin ? 0 : display.isOnline ? 1 : 2 }
+        return displays
+            .filter { !$0.isActive && !$0.isVirtual && $0.isDisabledByUs }
+            .sorted { (rank($0), $0.id) < (rank($1), $1.id) }
+            .map(\.id)
     }
 }

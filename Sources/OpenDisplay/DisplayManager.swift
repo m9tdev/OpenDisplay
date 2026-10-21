@@ -82,6 +82,7 @@ final class DisplayManager {
 
     @ObservationIgnored private var byID: [CGDirectDisplayID: Display] = [:]
     @ObservationIgnored private var observer: NSObjectProtocol?
+    @ObservationIgnored private var wakeObservers: [NSObjectProtocol] = []
     @ObservationIgnored private var pendingRefresh: DispatchWorkItem?
 
     /// Displays we turned off, with their names. Kept so they stay in the list (and survive an app restart).
@@ -105,6 +106,13 @@ final class DisplayManager {
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.scheduleRefresh() }
+        }
+        // After sleep, a display may have gone away (see `keepADisplayOn`).
+        let workspace = NSWorkspace.shared.notificationCenter
+        wakeObservers = [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification].map { name in
+            workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.scheduleRefresh() }
+            }
         }
     }
 
@@ -178,6 +186,7 @@ final class DisplayManager {
         syncFromBuiltin()
         XDRBoost.shared.displaysChanged()
         revision += 1
+        keepADisplayOn()
     }
 
     // MARK: Brightness
@@ -543,6 +552,50 @@ final class DisplayManager {
                 isVirtual: DisplayPolicy.isVirtual(vendor: CGDisplayVendorNumber(id), model: CGDisplayModelNumber(id),
                                                    isBuiltin: builtin),
                 isDisabledByUs: disabled.contains(id))
+        }
+    }
+
+    @ObservationIgnored private var isRestoring = false
+
+    /// When the last physical display that is on goes away (for example, the TV is unplugged while OpenDisplay has
+    /// the built-in display off), macOS does not turn another display on: it shows a virtual placeholder display, and
+    /// the Mac has no screen. Then turn on a display that OpenDisplay turned off, the built-in display first.
+    /// `refresh` calls this: at launch, after each change of the displays, and after wake.
+    private func keepADisplayOn() {
+        guard let configure = PrivateAPI.configureDisplayEnabled, changing.isEmpty, !isRestoring else { return }
+        let disabled = self.disabled
+        guard !DisplayPolicy.displaysToRestore(in: Self.liveStates(disabled: Set(disabled.keys))).isEmpty else { return }
+        isRestoring = true
+        // Wait a moment: after wake, a display can take a few seconds to come back on by itself.
+        configQueue.asyncAfter(deadline: .now() + 2) {
+            // Check again: the displays may have changed, also by a toggle or a preset before this in the queue.
+            let candidates = DisplayPolicy.displaysToRestore(in: Self.liveStates(disabled: Set(disabled.keys)))
+            var restored: CGDirectDisplayID?
+            var errors: [String] = []
+            for id in candidates {
+                if let error = Self.applyEnabled(id, true, name: disabled[id] ?? "Display \(id)", configure: configure) {
+                    errors.append(error)
+                } else {
+                    restored = id
+                    break
+                }
+            }
+            let error = errors.first
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self.isRestoring = false
+                    guard let restored else {
+                        // No new refresh: it would only try again, and fail again.
+                        if let error { self.lastError = error }
+                        return
+                    }
+                    var disabled = self.disabled
+                    disabled[restored] = nil
+                    self.disabled = disabled
+                    self.byID[restored]?.isEnabled = true
+                    self.scheduleRefresh()
+                }
+            }
         }
     }
 
