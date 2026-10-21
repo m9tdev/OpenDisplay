@@ -167,3 +167,45 @@ final class StandInDisplayTests: XCTestCase {
         XCTAssertFalse(DisplayPolicy.canDisable([1], in: states))
     }
 }
+
+/// The simulation on the Mac (2026-10-21 10:47): the built-in display turned off while it was the only display.
+/// macOS made its stand-in (ID 13, "unkn"/"virt"), and for the built-in display, now unknown to it, CGDisplayIsActive,
+/// CGDisplayIsOnline, and CGDisplayIsBuiltin returned -1. Read as "not 0", the built-in display counted as on, so
+/// OpenDisplay logged "turn on []" and the screen stayed dark.
+final class RawAnswersTests: XCTestCase {
+    let standIn = DisplayReport(id: 13, isBuiltin: 0, isOnline: 1, isActive: 1, vendor: 0x756E_6B6E,
+                                model: 0x7669_7274, modeCount: 1)
+    let builtinOff = DisplayReport(id: 1, isBuiltin: -1, isOnline: -1, isActive: -1, vendor: 0xFFFF_FFFF,
+                                   model: 0xFFFF_FFFF, modeCount: 0)
+
+    func testATurnedOffBuiltinDisplayThatMacOSAnswersMinusOneForIsInactive() {
+        let states = DisplayPolicy.states(online: [13], active: [13], reports: [standIn, builtinOff], disabled: [1])
+        XCTAssertEqual(states.first { $0.id == 1 }?.isActive, false)
+        XCTAssertEqual(states.first { $0.id == 1 }?.isOnline, false)
+        XCTAssertEqual(DisplayPolicy.displaysToRestore(in: states), [1])
+    }
+
+    func testOnlyAnAnswerOfOneMeansBuiltin() {
+        let states = DisplayPolicy.states(online: [13], active: [13], reports: [standIn, builtinOff], disabled: [1])
+        XCTAssertEqual(states.first { $0.id == 1 }?.isBuiltin, false)
+        let on = DisplayReport(id: 1, isBuiltin: 1, isOnline: 1, isActive: 1, vendor: 0x0610, model: 0xA04F,
+                               modeCount: 60)
+        XCTAssertEqual(DisplayPolicy.states(online: [1], active: [1], reports: [on], disabled: []).first?.isBuiltin, true)
+    }
+
+    func testActiveAndOnlineComeFromTheLists() {
+        // The lists are the truth, whatever the single answers say.
+        let tv = DisplayReport(id: 3, isBuiltin: 0, isOnline: 0, isActive: 0, vendor: 0x410C, model: 0, modeCount: 135)
+        let states = DisplayPolicy.states(online: [3], active: [3], reports: [tv, builtinOff], disabled: [1])
+        XCTAssertEqual(states.first { $0.id == 3 }?.isActive, true)
+        XCTAssertEqual(states.first { $0.id == 3 }?.isOnline, true)
+        XCTAssertEqual(DisplayPolicy.displaysToRestore(in: states), [])
+    }
+
+    func testTheBuiltinDisplayCannotTurnOffWhenOnlyTheStandInWouldStayOn() {
+        let on = DisplayReport(id: 1, isBuiltin: 1, isOnline: 1, isActive: 1, vendor: 0x0610, model: 0xA04F,
+                               modeCount: 60)
+        let states = DisplayPolicy.states(online: [1, 13], active: [1, 13], reports: [on, standIn], disabled: [])
+        XCTAssertFalse(DisplayPolicy.canDisable([1], in: states))
+    }
+}
