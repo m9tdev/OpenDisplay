@@ -10,7 +10,13 @@ final class Display: Identifiable {
     var name: String
     let isBuiltin: Bool
     /// Not a real screen, such as the placeholder that macOS makes when no display is on (see `DisplayPolicy`).
-    let isVirtual: Bool
+    /// Read each time: right after a display connects, macOS may not know its modes yet. A display that is off is not
+    /// virtual: macOS has no identity for it then.
+    var isVirtual: Bool {
+        CGDisplayIsActive(id) != 0 && DisplayPolicy.isVirtual(
+            vendor: CGDisplayVendorNumber(id), model: CGDisplayModelNumber(id), isBuiltin: isBuiltin,
+            modeCount: DisplayManager.modeCount(id))
+    }
     var isEnabled = true
     /// 0...1, the position of the brightness slider. `nil` while we do not know the value yet.
     /// The lowest part of the range dims the image in software (see `DisplayManager.setBrightness`).
@@ -46,9 +52,6 @@ final class Display: Identifiable {
         self.id = id
         self.name = name
         self.isBuiltin = CGDisplayIsBuiltin(id) != 0
-        self.isVirtual = DisplayPolicy.isVirtual(
-            vendor: CGDisplayVendorNumber(id), model: CGDisplayModelNumber(id), isBuiltin: isBuiltin,
-            modeCount: DisplayManager.modeCount(id))
     }
 
     /// Identifies the external display across reconnects and restarts (the display ID can change).
