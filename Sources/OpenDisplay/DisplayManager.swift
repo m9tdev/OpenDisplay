@@ -9,12 +9,13 @@ import os
 final class Display: Identifiable {
     let id: CGDirectDisplayID
     var name: String
-    let isBuiltin: Bool
+    /// Read again when the display is on: macOS does not know a display that is off (see `DisplayPolicy.states`).
+    fileprivate(set) var isBuiltin: Bool
     /// Not a real screen, such as the placeholder that macOS makes when no display is on (see `DisplayPolicy`).
     /// Read each time: right after a display connects, macOS may not know its modes yet. A display that is off is not
     /// virtual: macOS has no identity for it then.
     var isVirtual: Bool {
-        CGDisplayIsActive(id) != 0 && DisplayPolicy.isVirtual(
+        DisplayManager.activeDisplays().contains(id) && DisplayPolicy.isVirtual(
             vendor: CGDisplayVendorNumber(id), model: CGDisplayModelNumber(id), isBuiltin: isBuiltin,
             modeCount: DisplayManager.modeCount(id))
     }
@@ -52,7 +53,8 @@ final class Display: Identifiable {
     init(id: CGDirectDisplayID, name: String) {
         self.id = id
         self.name = name
-        self.isBuiltin = CGDisplayIsBuiltin(id) != 0
+        // -1 for a display macOS does not know now (see `DisplayPolicy.states`).
+        self.isBuiltin = DisplayPolicy.isTrue(CGDisplayIsBuiltin(id))
     }
 
     /// Identifies the external display across reconnects and restarts (the display ID can change).
@@ -134,22 +136,22 @@ final class DisplayManager {
     }
 
     func refresh() {
-        var online = [CGDirectDisplayID](repeating: 0, count: 16)
-        var count: UInt32 = 0
-        CGGetOnlineDisplayList(UInt32(online.count), &online, &count)
-        online = Array(online.prefix(Int(count)))
+        // From the lists: CGDisplayIsActive returns -1 for a display macOS does not know now (see `DisplayPolicy`).
+        let online = Self.onlineDisplays()
+        let active = Set(Self.activeDisplays())
 
         var disabled = self.disabled
         // A display that is active again (for example after a reboot or replug) is no longer "off".
-        for id in online where CGDisplayIsActive(id) != 0 {
+        for id in active {
             disabled[id] = nil
         }
         self.disabled = disabled
 
-        var ids = online.filter { CGDisplayIsActive($0) != 0 || disabled[$0] != nil }
+        var ids = online.filter { active.contains($0) || disabled[$0] != nil }
+        ids += active.filter { !ids.contains($0) }
         ids += disabled.keys.filter { !ids.contains($0) }
 
-        let ddc = DDCDiscovery.services(for: ids.filter { CGDisplayIsActive($0) != 0 })
+        let ddc = DDCDiscovery.services(for: ids.filter { active.contains($0) })
 
         var next: [Display] = []
         for id in ids {
@@ -158,8 +160,9 @@ final class DisplayManager {
                 next.append(display)
                 continue
             }
-            display.isEnabled = CGDisplayIsActive(id) != 0
+            display.isEnabled = active.contains(id)
             if display.isEnabled {
+                display.isBuiltin = DisplayPolicy.isTrue(CGDisplayIsBuiltin(id))
                 display.name = Self.name(of: id)
                 if display.ddc == nil || ddc[id] == nil {
                     display.ddc = ddc[id]
@@ -541,8 +544,9 @@ final class DisplayManager {
     /// The displays in the list, for `DisplayPolicy`. A display with a change in progress has its new state.
     var states: [DisplayState] {
         let disabled = self.disabled
+        let online = Set(Self.onlineDisplays())
         return displays.map {
-            DisplayState(id: $0.id, isBuiltin: $0.isBuiltin, isOnline: CGDisplayIsOnline($0.id) != 0,
+            DisplayState(id: $0.id, isBuiltin: $0.isBuiltin, isOnline: online.contains($0.id),
                          isActive: $0.isEnabled, isVirtual: $0.isVirtual, isDisabledByUs: disabled[$0.id] != nil)
         }
     }
@@ -592,6 +596,7 @@ final class DisplayManager {
             let id = state.id
             return "\(id)[builtin \(state.isBuiltin), online \(state.isOnline), active \(state.isActive), "
                 + "virtual \(state.isVirtual), ours \(state.isDisabledByUs), "
+                + "macOS answers builtin \(CGDisplayIsBuiltin(id)) online \(CGDisplayIsOnline(id)) active \(CGDisplayIsActive(id)), "
                 + String(format: "vendor %08X, model %08X, ", CGDisplayVendorNumber(id), CGDisplayModelNumber(id))
                 + "modes \(modeCount(id)), \(Int(CGDisplayPixelsWide(id)))x\(Int(CGDisplayPixelsHigh(id)))]"
         }.joined(separator: " ")
@@ -787,6 +792,6 @@ final class DisplayManager {
         if let screen = NSScreen.screens.first(where: { ($0.deviceDescription[key] as? CGDirectDisplayID) == id }) {
             return screen.localizedName
         }
-        return CGDisplayIsBuiltin(id) != 0 ? "Built-in Display" : "Display \(id)"
+        return DisplayPolicy.isTrue(CGDisplayIsBuiltin(id)) ? "Built-in Display" : "Display \(id)"
     }
 }

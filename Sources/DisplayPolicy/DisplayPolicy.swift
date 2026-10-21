@@ -61,14 +61,22 @@ public struct DisplayReport: Equatable, Sendable {
 public enum DisplayPolicy {
     /// The states of the displays, from what macOS reports: `CGGetOnlineDisplayList`, `CGGetActiveDisplayList`, a
     /// report for each display in them and for each display we turned off (`disabled`), which may be in neither.
+    ///
+    /// For a display ID that macOS does not know now, such as the built-in display while it is off, the
+    /// `CGDisplayIs…` functions return -1, not 0. So "online" and "active" come from the lists, and only an answer of 1
+    /// means built-in.
     public static func states(online: [UInt32], active: [UInt32], reports: [DisplayReport],
                               disabled: Set<UInt32>) -> [DisplayState] {
-        reports.map { report in
-            DisplayState(id: report.id, isBuiltin: report.isBuiltin != 0, isOnline: report.isOnline != 0,
-                         isActive: report.isActive != 0, vendor: report.vendor, model: report.model,
+        let online = Set(online), active = Set(active)
+        return reports.map { report in
+            DisplayState(id: report.id, isBuiltin: isTrue(report.isBuiltin), isOnline: online.contains(report.id),
+                         isActive: active.contains(report.id), vendor: report.vendor, model: report.model,
                          modeCount: report.modeCount, isDisabledByUs: disabled.contains(report.id))
         }
     }
+
+    /// True only for an answer of 1 from a `CGDisplayIs…` function: it returns -1 for a display it does not know.
+    public static func isTrue(_ answer: Int32) -> Bool { answer == 1 }
 
     /// True for a display that is not a real screen: anything but the built-in display and displays that identify as
     /// real ones, with a vendor and display modes.

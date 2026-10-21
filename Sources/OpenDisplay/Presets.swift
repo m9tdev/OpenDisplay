@@ -114,7 +114,8 @@ extension DisplayManager {
         configQueue.async {
             var errors: [String] = []
             // Turn displays on first, so there is always a display that is on.
-            for (id, state) in steps where state.isEnabled && CGDisplayIsActive(id) == 0 {
+            // From the list: CGDisplayIsActive returns -1 for a display that is off (see `DisplayPolicy.states`).
+            for (id, state) in steps where state.isEnabled && !Self.activeDisplays().contains(id) {
                 if let error = Self.applyEnabled(id, true, name: state.name, configure: configure) { errors.append(error) }
             }
             for (id, state) in steps where state.isEnabled {
@@ -135,7 +136,7 @@ extension DisplayManager {
                 if let error = DisplayArrangement.setMain(main.id) { errors.append(error) }
             }
             var turnedOff: Set<CGDirectDisplayID> = []
-            for (id, state) in steps where !state.isEnabled && CGDisplayIsActive(id) != 0 {
+            for (id, state) in steps where !state.isEnabled && Self.activeDisplays().contains(id) {
                 // Check again with the displays as they are now: a display may have failed to turn on.
                 let live = Self.liveStates(disabled: [])
                 guard DisplayPolicy.canDisable([id], in: live) else {
