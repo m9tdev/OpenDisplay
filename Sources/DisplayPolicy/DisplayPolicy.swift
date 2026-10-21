@@ -34,8 +34,42 @@ public struct DisplayState: Equatable, Sendable {
     }
 }
 
+/// What macOS answers about one display, as it answers: `CGDisplayIsBuiltin`, `CGDisplayIsOnline`, and
+/// `CGDisplayIsActive` return a `boolean_t`, an Int32.
+public struct DisplayReport: Equatable, Sendable {
+    public var id: UInt32
+    public var isBuiltin: Int32
+    public var isOnline: Int32
+    public var isActive: Int32
+    public var vendor: UInt32
+    public var model: UInt32
+    public var modeCount: Int
+
+    public init(id: UInt32, isBuiltin: Int32, isOnline: Int32, isActive: Int32, vendor: UInt32, model: UInt32,
+                modeCount: Int) {
+        self.id = id
+        self.isBuiltin = isBuiltin
+        self.isOnline = isOnline
+        self.isActive = isActive
+        self.vendor = vendor
+        self.model = model
+        self.modeCount = modeCount
+    }
+}
+
 /// When a display may turn off, and which display to turn on again.
 public enum DisplayPolicy {
+    /// The states of the displays, from what macOS reports: `CGGetOnlineDisplayList`, `CGGetActiveDisplayList`, a
+    /// report for each display in them and for each display we turned off (`disabled`), which may be in neither.
+    public static func states(online: [UInt32], active: [UInt32], reports: [DisplayReport],
+                              disabled: Set<UInt32>) -> [DisplayState] {
+        reports.map { report in
+            DisplayState(id: report.id, isBuiltin: report.isBuiltin != 0, isOnline: report.isOnline != 0,
+                         isActive: report.isActive != 0, vendor: report.vendor, model: report.model,
+                         modeCount: report.modeCount, isDisabledByUs: disabled.contains(report.id))
+        }
+    }
+
     /// True for a display that is not a real screen: anything but the built-in display and displays that identify as
     /// real ones, with a vendor and display modes.
     ///

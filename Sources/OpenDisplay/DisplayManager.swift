@@ -550,22 +550,31 @@ final class DisplayManager {
     /// The displays as macOS reports them now, for `DisplayPolicy`: the online and active ones, and `disabled`
     /// (displays we turned off), which may not be online. Safe on any thread.
     nonisolated static func liveStates(disabled: Set<CGDirectDisplayID>) -> [DisplayState] {
-        func list(_ get: (UInt32, UnsafeMutablePointer<CGDirectDisplayID>?, UnsafeMutablePointer<UInt32>?) -> CGError)
-            -> [CGDirectDisplayID] {
-            var ids = [CGDirectDisplayID](repeating: 0, count: 16)
-            var count: UInt32 = 0
-            guard get(UInt32(ids.count), &ids, &count) == .success else { return [] }
-            return Array(ids.prefix(Int(count)))
-        }
-        var ids = list(CGGetOnlineDisplayList)
-        ids += list(CGGetActiveDisplayList).filter { !ids.contains($0) }
+        let online = onlineDisplays(), active = activeDisplays()
+        var ids = online
+        ids += active.filter { !ids.contains($0) }
         ids += disabled.sorted().filter { !ids.contains($0) }
-        return ids.map { id in
-            DisplayState(
-                id: id, isBuiltin: CGDisplayIsBuiltin(id) != 0, isOnline: CGDisplayIsOnline(id) != 0,
-                isActive: CGDisplayIsActive(id) != 0, vendor: CGDisplayVendorNumber(id), model: CGDisplayModelNumber(id),
-                modeCount: modeCount(id), isDisabledByUs: disabled.contains(id))
+        let reports = ids.map { id in
+            DisplayReport(id: id, isBuiltin: CGDisplayIsBuiltin(id), isOnline: CGDisplayIsOnline(id),
+                          isActive: CGDisplayIsActive(id), vendor: CGDisplayVendorNumber(id),
+                          model: CGDisplayModelNumber(id), modeCount: modeCount(id))
         }
+        return DisplayPolicy.states(online: online, active: active, reports: reports, disabled: disabled)
+    }
+
+    /// `CGGetOnlineDisplayList`. Safe on any thread.
+    nonisolated static func onlineDisplays() -> [CGDirectDisplayID] { list(CGGetOnlineDisplayList) }
+
+    /// `CGGetActiveDisplayList`. Safe on any thread.
+    nonisolated static func activeDisplays() -> [CGDirectDisplayID] { list(CGGetActiveDisplayList) }
+
+    private nonisolated static func list(
+        _ get: (UInt32, UnsafeMutablePointer<CGDirectDisplayID>?, UnsafeMutablePointer<UInt32>?) -> CGError
+    ) -> [CGDirectDisplayID] {
+        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
+        var count: UInt32 = 0
+        guard get(UInt32(ids.count), &ids, &count) == .success else { return [] }
+        return Array(ids.prefix(Int(count)))
     }
 
     /// The number of display modes macOS has for the display. Safe on any thread.
