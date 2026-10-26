@@ -9,15 +9,18 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0"),
     ],
     targets: [
+        // The on/off decisions, without macOS calls, so tests can check them.
+        .target(name: "DisplayPolicy", path: "Sources/DisplayPolicy"),
         .executableTarget(
             name: "OpenDisplay",
-            dependencies: [.product(name: "Sparkle", package: "Sparkle")],
+            dependencies: ["DisplayPolicy", .product(name: "Sparkle", package: "Sparkle")],
             path: "Sources/OpenDisplay",
             linkerSettings: [
                 .linkedFramework("IOKit"),
                 .linkedFramework("CoreGraphics"),
             ]
         ),
+        .testTarget(name: "DisplayPolicyTests", dependencies: ["DisplayPolicy"], path: "Tests/DisplayPolicyTests"),
     ],
     swiftLanguageModes: [.v5]
 )
