@@ -23,13 +23,12 @@ public struct DisplayState: Equatable, Sendable {
     }
 
     /// From what macOS reports about the display: `CGDisplayVendorNumber`, `CGDisplayModelNumber`, and the number of
-    /// display modes. `DisplayPolicy.isVirtual` decides if it is virtual. A display that is off is not virtual:
-    /// macOS has no identity for it then (vendor and model 0xFFFFFFFF).
+    /// display modes. `DisplayPolicy.isVirtual` decides if it is virtual.
     public init(id: UInt32, isBuiltin: Bool, isOnline: Bool, isActive: Bool, vendor: UInt32, model: UInt32,
                 modeCount: Int, isDisabledByUs: Bool) {
         self.init(id: id, isBuiltin: isBuiltin, isOnline: isOnline, isActive: isActive,
-                  isVirtual: isActive && DisplayPolicy.isVirtual(vendor: vendor, model: model, isBuiltin: isBuiltin,
-                                                                 modeCount: modeCount),
+                  isVirtual: DisplayPolicy.isVirtual(vendor: vendor, model: model, isBuiltin: isBuiltin,
+                                                     modeCount: modeCount),
                   isDisabledByUs: isDisabledByUs)
     }
 }
@@ -78,20 +77,14 @@ public enum DisplayPolicy {
     /// True only for an answer of 1 from a `CGDisplayIs…` function: it returns -1 for a display it does not know.
     public static func isTrue(_ answer: Int32) -> Bool { answer == 1 }
 
-    /// True for a display that is not a real screen: anything but the built-in display and displays that identify as
-    /// real ones, with a vendor and display modes.
+    /// True for a display that is not a real screen, from its `CGDisplayVendorNumber`, `CGDisplayModelNumber`, and
+    /// number of display modes.
     ///
     /// When the last display that is on goes away (for example, the TV is unplugged while the built-in display is
-    /// off), macOS does not turn another display on: WindowServer makes a virtual stand-in display, with vendor "unkn"
-    /// and model "virt", and makes it the main display. The Mac then has no screen. But other apps may not be able to
-    /// read the stand-in's identity: inside OpenDisplay, macOS gave no display info for it ("error requesting display
-    /// info dictionary"). So a display without a readable vendor, or without display modes, is not a physical one.
+    /// off), macOS does not turn another display on: WindowServer makes a virtual placeholder display, with vendor
+    /// "unkn" and model "virt", and makes it the main display. The Mac then has no screen.
     public static func isVirtual(vendor: UInt32, model: UInt32, isBuiltin: Bool, modeCount: Int) -> Bool {
-        guard !isBuiltin else { return false }
-        if vendor == placeholderVendor && model == placeholderModel { return true }
-        // macOS reports 0xFFFFFFFF for a display it has no info for.
-        if vendor == 0 || vendor == 0xFFFF_FFFF { return true }
-        return modeCount == 0
+        !isBuiltin && vendor == placeholderVendor && model == placeholderModel
     }
 
     /// "unkn" and "virt", in ASCII.
