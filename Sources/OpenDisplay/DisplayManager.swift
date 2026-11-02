@@ -634,6 +634,9 @@ final class DisplayManager {
     }
 
     @ObservationIgnored private var isRestoring = false
+    /// The error that a failed attempt to turn a display on again showed, so a later success can clear it (and only
+    /// it, not an error of something else).
+    @ObservationIgnored private var restoreError: String?
     /// Tries after a failed attempt to turn a display on again, before the next display change. The limit is per chain:
     /// each refresh starts a new chain at 0, so if a failed attempt makes macOS post a display change, the attempts go
     /// on every 3 to 5 seconds while no display is on.
@@ -693,7 +696,10 @@ final class DisplayManager {
                     self.isRestoring = false
                     guard let restored else {
                         // A display that failed keeps its mark in `disabled`, so the next check tries it again.
-                        if let error = outcome.error { self.lastError = error }
+                        if let error = outcome.error {
+                            self.lastError = error
+                            self.restoreError = error
+                        }
                         // Right after a display goes away, macOS may refuse. Try a few more times, not forever.
                         if outcome.retries {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
@@ -701,6 +707,10 @@ final class DisplayManager {
                             }
                         }
                         return
+                    }
+                    if outcome.clearsError {
+                        if let error = self.restoreError, self.lastError == error { self.lastError = nil }
+                        self.restoreError = nil
                     }
                     var disabled = self.disabled
                     disabled[restored] = nil

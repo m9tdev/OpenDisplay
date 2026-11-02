@@ -151,7 +151,7 @@ public enum DisplayPolicy {
     /// off, not unplugged.
     public static func restoreOutcome(restored: UInt32?, failures: [(id: UInt32, error: String)],
                                       in displays: [DisplayState], attempt: Int, maxRetries: Int) -> RestoreOutcome {
-        guard restored == nil else { return RestoreOutcome(retries: false, error: nil) }
+        guard restored == nil else { return RestoreOutcome(retries: false, error: nil, clearsError: true) }
         let error = failures.first { showsRestoreError(of: $0.id, in: displays) }?.error
         return RestoreOutcome(retries: !failures.isEmpty && attempt < maxRetries, error: error)
     }
