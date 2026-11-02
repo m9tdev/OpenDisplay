@@ -273,6 +273,9 @@ final class RestoreOutcomeTests: XCTestCase {
     }
 
     func testTheRetriesStop() {
+        // Attempts 0, 1, and 2 are followed by a retry; attempt 3 is the last.
+        XCTAssertEqual(outcome(failures: [(2, "Could not turn on Display 2")], attempt: 2),
+                       DisplayPolicy.RestoreOutcome(retries: true, error: nil))
         XCTAssertEqual(outcome(failures: [(2, "Could not turn on Display 2")], attempt: 3),
                        DisplayPolicy.RestoreOutcome(retries: false, error: nil))
     }
