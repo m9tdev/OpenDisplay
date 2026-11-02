@@ -637,6 +637,13 @@ final class DisplayManager {
     /// The error that a failed attempt to turn a display on again showed, so a later success can clear it (and only
     /// it, not an error of something else).
     @ObservationIgnored private var restoreError: String?
+    /// A physical display is on again: the error of an earlier failed attempt to turn one on is stale.
+    private func clearRestoreError() {
+        let error = DisplayPolicy.errorAfterRestore(lastError: lastError, restoreError: restoreError)
+        if error != lastError { lastError = error }
+        restoreError = nil
+    }
+
     /// Tries after a failed attempt to turn a display on again, before the next display change. The limit is per chain:
     /// each refresh starts a new chain at 0, so if a failed attempt makes macOS post a display change, the attempts go
     /// on every 3 to 5 seconds while no display is on.
@@ -709,8 +716,7 @@ final class DisplayManager {
                         return
                     }
                     if outcome.clearsError {
-                        if let error = self.restoreError, self.lastError == error { self.lastError = nil }
-                        self.restoreError = nil
+                        self.clearRestoreError()
                     }
                     var disabled = self.disabled
                     disabled[restored] = nil
