@@ -154,9 +154,11 @@ extension DisplayManager {
             let off = turnedOff
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
+                    // Only mark the displays that really turned off. `refresh` clears the ones that are on again, so
+                    // a display the preset could not turn on stays marked as off.
                     var disabled = self.disabled
-                    for (id, state) in steps where state.isEnabled || off.contains(id) {
-                        disabled[id] = state.isEnabled ? nil : state.name
+                    for (id, state) in steps where off.contains(id) {
+                        disabled[id] = state.name
                     }
                     self.disabled = disabled
                     self.lastError = errors.first
