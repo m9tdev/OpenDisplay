@@ -294,3 +294,36 @@ final class RestoreOutcomeTests: XCTestCase {
         XCTAssertEqual(outcome(failures: []), DisplayPolicy.RestoreOutcome(retries: false, error: nil))
     }
 }
+
+/// The error shown once a physical display is on again, after an earlier attempt to turn one on failed.
+final class ErrorAfterRestoreTests: XCTestCase {
+    let restoreError = "Could not turn on Built-in Retina Display (error 1001)."
+
+    func testTheErrorOfTheFailedAttemptIsCleared() {
+        XCTAssertNil(DisplayPolicy.errorAfterRestore(lastError: restoreError, restoreError: restoreError))
+    }
+
+    func testADifferentErrorStays() {
+        // For example a failed resolution change after the failed attempt.
+        let other = "Could not change the resolution."
+        XCTAssertEqual(DisplayPolicy.errorAfterRestore(lastError: other, restoreError: restoreError), other)
+    }
+
+    func testNoErrorStaysNoError() {
+        XCTAssertNil(DisplayPolicy.errorAfterRestore(lastError: nil, restoreError: restoreError))
+        XCTAssertNil(DisplayPolicy.errorAfterRestore(lastError: nil, restoreError: nil))
+    }
+
+    func testWithoutAFailedAttemptTheErrorStays() {
+        let other = "Could not turn on Display 2 (error 1000)."
+        XCTAssertEqual(DisplayPolicy.errorAfterRestore(lastError: other, restoreError: nil), other)
+    }
+
+    func testADisplayThatCameBackByItselfAlsoClearsTheError() {
+        // The check after a display change finds a physical display on (it came back by itself, or one was plugged
+        // in): nothing to turn on, and the error of the failed attempt is stale.
+        let states = [DisplayState(id: 1, isBuiltin: true), DisplayState(id: 2, isActive: false, isDisabledByUs: true)]
+        XCTAssertEqual(DisplayPolicy.displaysToRestore(in: states), [])
+        XCTAssertNil(DisplayPolicy.errorAfterRestore(lastError: restoreError, restoreError: restoreError))
+    }
+}
