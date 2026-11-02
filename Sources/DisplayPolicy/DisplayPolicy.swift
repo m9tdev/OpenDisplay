@@ -156,6 +156,12 @@ public enum DisplayPolicy {
         return RestoreOutcome(retries: !failures.isEmpty && attempt < maxRetries, error: error)
     }
 
+    /// The error to show after a check found a physical display on, or turned one on again. `restoreError` is the
+    /// error that an earlier failed attempt to turn a display on showed.
+    public static func errorAfterRestore(lastError: String?, restoreError: String?) -> String? {
+        lastError
+    }
+
     /// The displays to try to turn on again, in order, because no display is on. Empty if nothing needs to change.
     /// Only displays that OpenDisplay turned off, and no virtual ones. The built-in display first, then the online
     /// displays, then the others, each by ID (macOS may report a display that is off as offline).
