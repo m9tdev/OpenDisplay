@@ -131,17 +131,14 @@ public enum DisplayPolicy {
         return display.isBuiltin || display.isOnline
     }
 
-    /// What to do after an attempt to turn a display on again: try again, the error to show (nil: none), and whether
-    /// to clear an error that an earlier attempt showed.
+    /// What to do after an attempt to turn a display on again: try again, and the error to show (nil: none).
     public struct RestoreOutcome: Equatable, Sendable {
         public var retries: Bool
         public var error: String?
-        public var clearsError: Bool
 
-        public init(retries: Bool, error: String?, clearsError: Bool = false) {
+        public init(retries: Bool, error: String?) {
             self.retries = retries
             self.error = error
-            self.clearsError = clearsError
         }
     }
 
@@ -151,7 +148,7 @@ public enum DisplayPolicy {
     /// off, not unplugged.
     public static func restoreOutcome(restored: UInt32?, failures: [(id: UInt32, error: String)],
                                       in displays: [DisplayState], attempt: Int, maxRetries: Int) -> RestoreOutcome {
-        guard restored == nil else { return RestoreOutcome(retries: false, error: nil, clearsError: true) }
+        guard restored == nil else { return RestoreOutcome(retries: false, error: nil) }
         let error = failures.first { showsRestoreError(of: $0.id, in: displays) }?.error
         return RestoreOutcome(retries: !failures.isEmpty && attempt < maxRetries, error: error)
     }

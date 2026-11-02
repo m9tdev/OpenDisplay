@@ -280,14 +280,9 @@ final class RestoreOutcomeTests: XCTestCase {
                        DisplayPolicy.RestoreOutcome(retries: false, error: nil))
     }
 
-    func testNothingMoreToDoOnceADisplayIsOnAndAnEarlierErrorIsCleared() {
-        // An earlier attempt may have shown "Could not turn on …": once a display is on, that error is stale.
+    func testNothingMoreToDoOnceADisplayIsOn() {
         XCTAssertEqual(outcome(restored: 2, failures: [(1, "Could not turn on Built-in")]),
-                       DisplayPolicy.RestoreOutcome(retries: false, error: nil, clearsError: true))
-    }
-
-    func testAFailedAttemptDoesNotClearTheError() {
-        XCTAssertFalse(outcome(failures: [(1, "Could not turn on Built-in")]).clearsError)
+                       DisplayPolicy.RestoreOutcome(retries: false, error: nil))
     }
 
     func testNothingToTryMeansNoRetry() {

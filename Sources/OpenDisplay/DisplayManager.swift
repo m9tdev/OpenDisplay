@@ -715,9 +715,7 @@ final class DisplayManager {
                         }
                         return
                     }
-                    if outcome.clearsError {
-                        self.clearRestoreError()
-                    }
+                    self.clearRestoreError()
                     var disabled = self.disabled
                     disabled[restored] = nil
                     self.disabled = disabled
