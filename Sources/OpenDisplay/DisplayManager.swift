@@ -81,7 +81,11 @@ final class Display: Identifiable {
 @Observable
 final class DisplayManager {
     private(set) var displays: [Display] = []
-    var lastError: String?
+    /// Any other write forgets which error came from a failed attempt to turn a display on again (`restoreError`), so
+    /// a later success cannot clear an error of something else with the same text.
+    var lastError: String? {
+        didSet { restoreError = nil }
+    }
     /// Goes up after each refresh. Rows that show state macOS does not report changes for
     /// (display modes, main display, rotation) read it, so they update after a change.
     private(set) var revision = 0
@@ -705,6 +709,7 @@ final class DisplayManager {
                         // A display that failed keeps its mark in `disabled`, so the next check tries it again.
                         if let error = outcome.error {
                             self.lastError = error
+                            // After `lastError`: setting it forgets the restore error.
                             self.restoreError = error
                         }
                         // Right after a display goes away, macOS may refuse. Try a few more times, not forever.
