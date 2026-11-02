@@ -12,12 +12,11 @@ final class Display: Identifiable {
     /// Read again when the display is on: macOS does not know a display that is off (see `DisplayPolicy.states`).
     fileprivate(set) var isBuiltin: Bool
     /// Not a real screen, such as the placeholder that macOS makes when no display is on (see `DisplayPolicy`).
-    /// Read each time: right after a display connects, macOS may not know its modes yet. A display that is off is not
-    /// virtual: macOS has no identity for it then.
+    /// Read from macOS each time, because display IDs are reused. A display that is off is not virtual: macOS has no
+    /// identity for it then.
     var isVirtual: Bool {
         DisplayManager.activeDisplays().contains(id) && DisplayPolicy.isVirtual(
-            vendor: CGDisplayVendorNumber(id), model: CGDisplayModelNumber(id), isBuiltin: isBuiltin,
-            modeCount: DisplayManager.modeCount(id))
+            vendor: CGDisplayVendorNumber(id), model: CGDisplayModelNumber(id), isBuiltin: isBuiltin)
     }
     var isEnabled = true
     /// 0...1, the position of the brightness slider. `nil` while we do not know the value yet.
@@ -561,7 +560,7 @@ final class DisplayManager {
         let reports = ids.map { id in
             DisplayReport(id: id, isBuiltin: CGDisplayIsBuiltin(id), isOnline: CGDisplayIsOnline(id),
                           isActive: CGDisplayIsActive(id), vendor: CGDisplayVendorNumber(id),
-                          model: CGDisplayModelNumber(id), modeCount: modeCount(id))
+                          model: CGDisplayModelNumber(id))
         }
         return DisplayPolicy.states(online: online, active: active, reports: reports, disabled: disabled)
     }
@@ -581,11 +580,6 @@ final class DisplayManager {
         return Array(ids.prefix(Int(count)))
     }
 
-    /// The number of display modes macOS has for the display. Safe on any thread.
-    nonisolated static func modeCount(_ id: CGDirectDisplayID) -> Int {
-        (CGDisplayCopyAllDisplayModes(id, nil) as? [CGDisplayMode])?.count ?? 0
-    }
-
     /// The on/off decisions (`DisplayPolicy`), so a failure can be read later:
     /// `log show --predicate 'subsystem == "dev.m9t.OpenDisplay"' --info`.
     nonisolated static let log = Logger(subsystem: "dev.m9t.OpenDisplay", category: "displays")
@@ -598,7 +592,7 @@ final class DisplayManager {
                 + "virtual \(state.isVirtual), ours \(state.isDisabledByUs), "
                 + "macOS answers builtin \(CGDisplayIsBuiltin(id)) online \(CGDisplayIsOnline(id)) active \(CGDisplayIsActive(id)), "
                 + String(format: "vendor %08X, model %08X, ", CGDisplayVendorNumber(id), CGDisplayModelNumber(id))
-                + "modes \(modeCount(id)), \(Int(CGDisplayPixelsWide(id)))x\(Int(CGDisplayPixelsHigh(id)))]"
+                + "\(Int(CGDisplayPixelsWide(id)))x\(Int(CGDisplayPixelsHigh(id)))]"
         }.joined(separator: " ")
     }
 

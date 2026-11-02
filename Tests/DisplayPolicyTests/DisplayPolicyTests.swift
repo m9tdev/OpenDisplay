@@ -12,14 +12,14 @@ final class DisplayPolicyTests: XCTestCase {
 
     func testThePlaceholderOfMacOSIsVirtual() {
         // "unkn" and "virt": what macOS reported for the display it made when the built-in display was off.
-        XCTAssertTrue(DisplayPolicy.isVirtual(vendor: 0x756E_6B6E, model: 0x7669_7274, isBuiltin: false, modeCount: 1))
+        XCTAssertTrue(DisplayPolicy.isVirtual(vendor: 0x756E_6B6E, model: 0x7669_7274, isBuiltin: false))
     }
 
     func testRealDisplaysAreNotVirtual() {
         // The built-in display of a MacBook Pro, a Samsung TV, and the Philips TV of the bug (its model number is 0).
-        XCTAssertFalse(DisplayPolicy.isVirtual(vendor: 0x0610, model: 0xA04F, isBuiltin: true, modeCount: 132))
-        XCTAssertFalse(DisplayPolicy.isVirtual(vendor: 0x4C2D, model: 0x0E36, isBuiltin: false, modeCount: 58))
-        XCTAssertFalse(DisplayPolicy.isVirtual(vendor: 0x410C, model: 0, isBuiltin: false, modeCount: 135))
+        XCTAssertFalse(DisplayPolicy.isVirtual(vendor: 0x0610, model: 0xA04F, isBuiltin: true))
+        XCTAssertFalse(DisplayPolicy.isVirtual(vendor: 0x4C2D, model: 0x0E36, isBuiltin: false))
+        XCTAssertFalse(DisplayPolicy.isVirtual(vendor: 0x410C, model: 0, isBuiltin: false))
     }
 
     // MARK: Turning a display off
@@ -114,18 +114,18 @@ private extension DisplayState {
 final class StandInDisplayTests: XCTestCase {
     /// The built-in display as macOS reports it while it is off: offline, with vendor and model 0xFFFFFFFF.
     let builtinOff = DisplayState(id: 1, isBuiltin: true, isOnline: false, isActive: false, vendor: 0xFFFF_FFFF,
-                                  model: 0xFFFF_FFFF, modeCount: 0, isDisabledByUs: true)
+                                  model: 0xFFFF_FFFF, isDisabledByUs: true)
 
     func testTheBuiltinDisplayTurnsOnAgainWithTheKnownPlaceholder() {
         let standIn = DisplayState(id: 7, isBuiltin: false, isOnline: true, isActive: true, vendor: 0x756E_6B6E,
-                                   model: 0x7669_7274, modeCount: 1, isDisabledByUs: false)
+                                   model: 0x7669_7274, isDisabledByUs: false)
         XCTAssertEqual(DisplayPolicy.displaysToRestore(in: [standIn, builtinOff]), [1])
     }
 
     func testNothingTurnsOnWhileTheTVIsOn() {
         // The Philips TV of the bug: vendor 0x410C, model 0.
         let tv = DisplayState(id: 3, isBuiltin: false, isOnline: true, isActive: true, vendor: 0x410C, model: 0,
-                              modeCount: 135, isDisabledByUs: false)
+                              isDisabledByUs: false)
         XCTAssertEqual(DisplayPolicy.displaysToRestore(in: [tv, builtinOff]), [])
     }
 }
@@ -136,9 +136,9 @@ final class StandInDisplayTests: XCTestCase {
 /// OpenDisplay logged "turn on []" and the screen stayed dark.
 final class RawAnswersTests: XCTestCase {
     let standIn = DisplayReport(id: 13, isBuiltin: 0, isOnline: 1, isActive: 1, vendor: 0x756E_6B6E,
-                                model: 0x7669_7274, modeCount: 1)
+                                model: 0x7669_7274)
     let builtinOff = DisplayReport(id: 1, isBuiltin: -1, isOnline: -1, isActive: -1, vendor: 0xFFFF_FFFF,
-                                   model: 0xFFFF_FFFF, modeCount: 0)
+                                   model: 0xFFFF_FFFF)
 
     func testATurnedOffBuiltinDisplayThatMacOSAnswersMinusOneForIsInactive() {
         let states = DisplayPolicy.states(online: [13], active: [13], reports: [standIn, builtinOff], disabled: [1])
@@ -150,14 +150,13 @@ final class RawAnswersTests: XCTestCase {
     func testOnlyAnAnswerOfOneMeansBuiltin() {
         let states = DisplayPolicy.states(online: [13], active: [13], reports: [standIn, builtinOff], disabled: [1])
         XCTAssertEqual(states.first { $0.id == 1 }?.isBuiltin, false)
-        let on = DisplayReport(id: 1, isBuiltin: 1, isOnline: 1, isActive: 1, vendor: 0x0610, model: 0xA04F,
-                               modeCount: 60)
+        let on = DisplayReport(id: 1, isBuiltin: 1, isOnline: 1, isActive: 1, vendor: 0x0610, model: 0xA04F)
         XCTAssertEqual(DisplayPolicy.states(online: [1], active: [1], reports: [on], disabled: []).first?.isBuiltin, true)
     }
 
     func testActiveAndOnlineComeFromTheLists() {
         // The lists are the truth, whatever the single answers say.
-        let tv = DisplayReport(id: 3, isBuiltin: 0, isOnline: 0, isActive: 0, vendor: 0x410C, model: 0, modeCount: 135)
+        let tv = DisplayReport(id: 3, isBuiltin: 0, isOnline: 0, isActive: 0, vendor: 0x410C, model: 0)
         let states = DisplayPolicy.states(online: [3], active: [3], reports: [tv, builtinOff], disabled: [1])
         XCTAssertEqual(states.first { $0.id == 3 }?.isActive, true)
         XCTAssertEqual(states.first { $0.id == 3 }?.isOnline, true)
@@ -165,8 +164,7 @@ final class RawAnswersTests: XCTestCase {
     }
 
     func testTheBuiltinDisplayCannotTurnOffWhenOnlyTheStandInWouldStayOn() {
-        let on = DisplayReport(id: 1, isBuiltin: 1, isOnline: 1, isActive: 1, vendor: 0x0610, model: 0xA04F,
-                               modeCount: 60)
+        let on = DisplayReport(id: 1, isBuiltin: 1, isOnline: 1, isActive: 1, vendor: 0x0610, model: 0xA04F)
         let states = DisplayPolicy.states(online: [1, 13], active: [1, 13], reports: [on, standIn], disabled: [])
         XCTAssertFalse(DisplayPolicy.canDisable([1], in: states))
     }

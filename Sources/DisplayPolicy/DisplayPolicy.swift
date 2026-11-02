@@ -22,13 +22,12 @@ public struct DisplayState: Equatable, Sendable {
         self.isDisabledByUs = isDisabledByUs
     }
 
-    /// From what macOS reports about the display: `CGDisplayVendorNumber`, `CGDisplayModelNumber`, and the number of
-    /// display modes. `DisplayPolicy.isVirtual` decides if it is virtual.
+    /// From what macOS reports about the display: `CGDisplayVendorNumber` and `CGDisplayModelNumber`.
+    /// `DisplayPolicy.isVirtual` decides if it is virtual.
     public init(id: UInt32, isBuiltin: Bool, isOnline: Bool, isActive: Bool, vendor: UInt32, model: UInt32,
-                modeCount: Int, isDisabledByUs: Bool) {
+                isDisabledByUs: Bool) {
         self.init(id: id, isBuiltin: isBuiltin, isOnline: isOnline, isActive: isActive,
-                  isVirtual: DisplayPolicy.isVirtual(vendor: vendor, model: model, isBuiltin: isBuiltin,
-                                                     modeCount: modeCount),
+                  isVirtual: DisplayPolicy.isVirtual(vendor: vendor, model: model, isBuiltin: isBuiltin),
                   isDisabledByUs: isDisabledByUs)
     }
 }
@@ -42,17 +41,14 @@ public struct DisplayReport: Equatable, Sendable {
     public var isActive: Int32
     public var vendor: UInt32
     public var model: UInt32
-    public var modeCount: Int
 
-    public init(id: UInt32, isBuiltin: Int32, isOnline: Int32, isActive: Int32, vendor: UInt32, model: UInt32,
-                modeCount: Int) {
+    public init(id: UInt32, isBuiltin: Int32, isOnline: Int32, isActive: Int32, vendor: UInt32, model: UInt32) {
         self.id = id
         self.isBuiltin = isBuiltin
         self.isOnline = isOnline
         self.isActive = isActive
         self.vendor = vendor
         self.model = model
-        self.modeCount = modeCount
     }
 }
 
@@ -70,20 +66,19 @@ public enum DisplayPolicy {
         return reports.map { report in
             DisplayState(id: report.id, isBuiltin: isTrue(report.isBuiltin), isOnline: online.contains(report.id),
                          isActive: active.contains(report.id), vendor: report.vendor, model: report.model,
-                         modeCount: report.modeCount, isDisabledByUs: disabled.contains(report.id))
+                         isDisabledByUs: disabled.contains(report.id))
         }
     }
 
     /// True only for an answer of 1 from a `CGDisplayIs…` function: it returns -1 for a display it does not know.
     public static func isTrue(_ answer: Int32) -> Bool { answer == 1 }
 
-    /// True for a display that is not a real screen, from its `CGDisplayVendorNumber`, `CGDisplayModelNumber`, and
-    /// number of display modes.
+    /// True for a display that is not a real screen, from its `CGDisplayVendorNumber` and `CGDisplayModelNumber`.
     ///
     /// When the last display that is on goes away (for example, the TV is unplugged while the built-in display is
     /// off), macOS does not turn another display on: WindowServer makes a virtual placeholder display, with vendor
     /// "unkn" and model "virt", and makes it the main display. The Mac then has no screen.
-    public static func isVirtual(vendor: UInt32, model: UInt32, isBuiltin: Bool, modeCount: Int) -> Bool {
+    public static func isVirtual(vendor: UInt32, model: UInt32, isBuiltin: Bool) -> Bool {
         !isBuiltin && vendor == placeholderVendor && model == placeholderModel
     }
 
