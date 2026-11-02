@@ -110,6 +110,7 @@ extension DisplayManager {
         }
         lastError = nil
         let steps = targets
+        let builtins = builtinIDs
 
         configQueue.async {
             var errors: [String] = []
@@ -138,7 +139,7 @@ extension DisplayManager {
             var turnedOff: Set<CGDirectDisplayID> = []
             for (id, state) in steps where !state.isEnabled && Self.activeDisplays().contains(id) {
                 // Check again with the displays as they are now: a display may have failed to turn on.
-                let live = Self.liveStates(disabled: [])
+                let live = Self.liveStates(disabled: [], builtins: builtins)
                 guard DisplayPolicy.canDisable([id], in: live) else {
                     Self.log.notice("Preset: \(id, privacy: .public) stays on; displays: \(Self.describe(live), privacy: .public)")
                     errors.append("\(state.name) stays on: no other display is on.")

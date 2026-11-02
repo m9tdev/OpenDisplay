@@ -102,6 +102,13 @@ final class DisplayManager {
         }
     }
 
+    /// The built-in displays, remembered from when they were on: while a display is off, macOS does not say if it is
+    /// built-in (see `DisplayPolicy.states`). Kept across app restarts, like `disabled`.
+    @ObservationIgnored var builtinIDs: Set<CGDirectDisplayID> {
+        get { Set((UserDefaults.standard.array(forKey: "builtinDisplays") as? [Int] ?? []).map { CGDirectDisplayID($0) }) }
+        set { UserDefaults.standard.set(newValue.sorted().map { Int($0) }, forKey: "builtinDisplays") }
+    }
+
     init() {
         refresh()
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
@@ -146,6 +153,13 @@ final class DisplayManager {
         }
         self.disabled = disabled
 
+        var builtins = builtinIDs
+        for id in active {
+            let answer = CGDisplayIsBuiltin(id)
+            if answer == 1 { builtins.insert(id) } else if answer == 0 { builtins.remove(id) }
+        }
+        if builtins != builtinIDs { builtinIDs = builtins }
+
         var ids = online.filter { active.contains($0) || disabled[$0] != nil }
         ids += active.filter { !ids.contains($0) }
         ids += disabled.keys.filter { !ids.contains($0) }
@@ -169,6 +183,7 @@ final class DisplayManager {
                     display.volume = nil
                 }
             } else {
+                display.isBuiltin = display.isBuiltin || builtins.contains(id)
                 display.ddc = nil
             }
             next.append(display)
@@ -554,7 +569,8 @@ final class DisplayManager {
 
     /// The displays as macOS reports them now, for `DisplayPolicy`: the online and active ones, and `disabled`
     /// (displays we turned off), which may not be online. Safe on any thread.
-    nonisolated static func liveStates(disabled: Set<CGDirectDisplayID>) -> [DisplayState] {
+    nonisolated static func liveStates(disabled: Set<CGDirectDisplayID>,
+                                       builtins: Set<CGDirectDisplayID>) -> [DisplayState] {
         let online = onlineDisplays(), active = activeDisplays()
         var ids = online
         ids += active.filter { !ids.contains($0) }
@@ -564,7 +580,8 @@ final class DisplayManager {
                           isActive: CGDisplayIsActive(id), vendor: CGDisplayVendorNumber(id),
                           model: CGDisplayModelNumber(id))
         }
-        return DisplayPolicy.states(online: online, active: active, reports: reports, disabled: disabled)
+        return DisplayPolicy.states(online: online, active: active, reports: reports, disabled: disabled,
+                                    builtins: builtins)
     }
 
     /// `CGGetOnlineDisplayList`. Safe on any thread.
@@ -613,7 +630,8 @@ final class DisplayManager {
             return
         }
         let disabled = self.disabled
-        let states = Self.liveStates(disabled: Set(disabled.keys))
+        let builtins = builtinIDs
+        let states = Self.liveStates(disabled: Set(disabled.keys), builtins: builtins)
         let candidates = DisplayPolicy.displaysToRestore(in: states)
         guard !candidates.isEmpty else {
             // The usual case, after each display change: only at debug level.
@@ -628,7 +646,7 @@ final class DisplayManager {
         // Wait a moment: after wake, a display can take a few seconds to come back on by itself.
         configQueue.asyncAfter(deadline: .now() + 2) {
             // Check again: the displays may have changed, also by a toggle or a preset before this in the queue.
-            let states = Self.liveStates(disabled: Set(disabled.keys))
+            let states = Self.liveStates(disabled: Set(disabled.keys), builtins: builtins)
             let candidates = DisplayPolicy.displaysToRestore(in: states)
             Self.log.notice("""
                 Keep a display on, check again: turn on \(candidates, privacy: .public); \

@@ -59,13 +59,14 @@ public enum DisplayPolicy {
     /// `builtins`: the displays that were built-in when they were last on.
     ///
     /// For a display ID that macOS does not know now, such as the built-in display while it is off, the
-    /// `CGDisplayIs…` functions return -1, not 0. So "online" and "active" come from the lists, and only an answer of 1
-    /// means built-in.
+    /// `CGDisplayIs…` functions return -1, not 0. So "online" and "active" come from the lists. Built-in is an answer of
+    /// 1, or, while macOS does not know the display (-1), the display is in `builtins`.
     public static func states(online: [UInt32], active: [UInt32], reports: [DisplayReport],
                               disabled: Set<UInt32>, builtins: Set<UInt32> = []) -> [DisplayState] {
         let online = Set(online), active = Set(active)
         return reports.map { report in
-            DisplayState(id: report.id, isBuiltin: isTrue(report.isBuiltin), isOnline: online.contains(report.id),
+            let isBuiltin = report.isBuiltin == 0 ? false : isTrue(report.isBuiltin) || builtins.contains(report.id)
+            return DisplayState(id: report.id, isBuiltin: isBuiltin, isOnline: online.contains(report.id),
                          isActive: active.contains(report.id), vendor: report.vendor, model: report.model,
                          isDisabledByUs: disabled.contains(report.id))
         }
@@ -98,8 +99,7 @@ public enum DisplayPolicy {
 
     /// The displays to try to turn on again, in order, because no display is on. Empty if nothing needs to change.
     /// Only displays that OpenDisplay turned off, and no virtual ones. The built-in display first, then the online
-    /// displays, then the others (macOS may report a display that is off as offline, and the built-in display
-    /// as not built-in then).
+    /// displays, then the others, each by ID (macOS may report a display that is off as offline).
     public static func displaysToRestore(in displays: [DisplayState]) -> [UInt32] {
         guard !displays.contains(where: { $0.isActive && !$0.isVirtual }) else { return [] }
         func rank(_ display: DisplayState) -> Int { display.isBuiltin ? 0 : display.isOnline ? 1 : 2 }
