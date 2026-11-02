@@ -2,8 +2,7 @@ import DisplayPolicy
 import XCTest
 
 final class DisplayPolicyTests: XCTestCase {
-    // Display IDs like on the Mac where the bug happened: 1 is the built-in display, 5 the placeholder that macOS made
-    // when no display was on.
+    // 1 is the built-in display, 3 a TV, and 5 the placeholder display that macOS makes when no display is on.
     let builtin = DisplayState(id: 1, isBuiltin: true)
     let tv = DisplayState(id: 3)
     let placeholder = DisplayState(id: 5, isVirtual: true)
@@ -11,12 +10,12 @@ final class DisplayPolicyTests: XCTestCase {
     // MARK: Virtual displays
 
     func testThePlaceholderOfMacOSIsVirtual() {
-        // "unkn" and "virt": what macOS reported for the display it made when the built-in display was off.
+        // "unkn" and "virt": the vendor and model of the display that macOS makes when no display is on.
         XCTAssertTrue(DisplayPolicy.isVirtual(vendor: 0x756E_6B6E, model: 0x7669_7274, isBuiltin: false))
     }
 
     func testRealDisplaysAreNotVirtual() {
-        // The built-in display of a MacBook Pro, a Samsung TV, and the Philips TV of the bug (its model number is 0).
+        // The built-in display of a MacBook Pro, a Samsung TV, and a Philips TV whose model number is 0.
         XCTAssertFalse(DisplayPolicy.isVirtual(vendor: 0x0610, model: 0xA04F, isBuiltin: true))
         XCTAssertFalse(DisplayPolicy.isVirtual(vendor: 0x4C2D, model: 0x0E36, isBuiltin: false))
         XCTAssertFalse(DisplayPolicy.isVirtual(vendor: 0x410C, model: 0, isBuiltin: false))
@@ -57,8 +56,8 @@ final class DisplayPolicyTests: XCTestCase {
     // MARK: Turning a display on again
 
     func testTheBuiltinDisplayTurnsOnAgainAfterTheTVIsUnplugged() {
-        // The bug: the built-in display was off (OpenDisplay turned it off while the TV was on), the TV was unplugged,
-        // and only the placeholder of macOS was on. The built-in display was not even online.
+        // OpenDisplay turned the built-in display off while the TV was on, then the TV was unplugged: only the
+        // placeholder of macOS is on, and the built-in display is not even online.
         let off = builtin.off(byUs: true, online: false)
         XCTAssertEqual(DisplayPolicy.displaysToRestore(in: [off, placeholder]), [builtin.id])
     }
@@ -108,9 +107,8 @@ private extension DisplayState {
     }
 }
 
-/// The state on the Mac when the fix of PR #3 did not work (2026-10-21 10:33): the only online display was the stand-in
-/// of macOS (ID 7, "unkn"/"virt", 1920x1080), and the built-in display (ID 1) was off and in disabledDisplays.
-/// (Why it still stayed off: see `RawAnswersTests`.)
+/// Display states built from vendor and model numbers: the stand-in display of macOS ("unkn"/"virt") is the only display
+/// on, and the built-in display is off, with vendor and model 0xFFFFFFFF.
 final class StandInDisplayTests: XCTestCase {
     /// The built-in display as macOS reports it while it is off: offline, with vendor and model 0xFFFFFFFF.
     let builtinOff = DisplayState(id: 1, isBuiltin: true, isOnline: false, isActive: false, vendor: 0xFFFF_FFFF,
@@ -123,17 +121,16 @@ final class StandInDisplayTests: XCTestCase {
     }
 
     func testNothingTurnsOnWhileTheTVIsOn() {
-        // The Philips TV of the bug: vendor 0x410C, model 0.
+        // A Philips TV: vendor 0x410C, model 0.
         let tv = DisplayState(id: 3, isBuiltin: false, isOnline: true, isActive: true, vendor: 0x410C, model: 0,
                               isDisabledByUs: false)
         XCTAssertEqual(DisplayPolicy.displaysToRestore(in: [tv, builtinOff]), [])
     }
 }
 
-/// The simulation on the Mac (2026-10-21 10:47): the built-in display turned off while it was the only display.
-/// macOS made its stand-in (ID 13, "unkn"/"virt"), and for the built-in display, now unknown to it, CGDisplayIsActive,
-/// CGDisplayIsOnline, and CGDisplayIsBuiltin returned -1. Read as "not 0", the built-in display counted as on, so
-/// OpenDisplay logged "turn on []" and the screen stayed dark.
+/// Display states built from the raw answers of macOS. When the built-in display is off and no other display is on,
+/// macOS shows its stand-in display ("unkn"/"virt"), and for the built-in display, which it does not know then,
+/// CGDisplayIsActive, CGDisplayIsOnline, and CGDisplayIsBuiltin return -1. That must not count as on.
 final class RawAnswersTests: XCTestCase {
     let standIn = DisplayReport(id: 13, isBuiltin: 0, isOnline: 1, isActive: 1, vendor: 0x756E_6B6E,
                                 model: 0x7669_7274)
