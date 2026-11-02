@@ -529,6 +529,8 @@ final class DisplayManager {
                     if let error {
                         display.isEnabled = !enabled
                         self.lastError = error
+                        // macOS may have changed part of the setup: show what it is now.
+                        self.scheduleRefresh()
                         return
                     }
                     var disabled = self.disabled
