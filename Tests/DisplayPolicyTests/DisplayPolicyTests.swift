@@ -322,3 +322,20 @@ final class ErrorAfterRestoreTests: XCTestCase {
         XCTAssertNil(DisplayPolicy.errorAfterRestore(lastError: restoreError, restoreError: restoreError))
     }
 }
+
+/// When the error of an earlier failed attempt to turn a display on is stale, after the check again of a later attempt.
+final class RestoreErrorIsStaleTests: XCTestCase {
+    func testADisplayThatTurnedOnMakesItStale() {
+        XCTAssertTrue(DisplayPolicy.restoreErrorIsStale(restored: 1, failures: [(2, "Could not turn on Display 2")]))
+    }
+
+    func testNothingToTurnOnMakesItStale() {
+        // The check again found nothing to turn on: a physical display is on again, for example the display came back
+        // by itself during the wait, or another one was plugged in.
+        XCTAssertTrue(DisplayPolicy.restoreErrorIsStale(restored: nil, failures: []))
+    }
+
+    func testAnotherFailureKeepsIt() {
+        XCTAssertFalse(DisplayPolicy.restoreErrorIsStale(restored: nil, failures: [(1, "Could not turn on Built-in")]))
+    }
+}
