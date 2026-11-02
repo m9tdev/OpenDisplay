@@ -153,11 +153,8 @@ final class DisplayManager {
         }
         self.disabled = disabled
 
-        var builtins = builtinIDs
-        for id in active {
-            let answer = CGDisplayIsBuiltin(id)
-            if answer == 1 { builtins.insert(id) } else if answer == 0 { builtins.remove(id) }
-        }
+        let builtins = DisplayPolicy.rememberedBuiltins(
+            builtinIDs, answers: Dictionary(uniqueKeysWithValues: active.map { ($0, CGDisplayIsBuiltin($0)) }))
         if builtins != builtinIDs { builtinIDs = builtins }
 
         var ids = online.filter { active.contains($0) || disabled[$0] != nil }
@@ -174,8 +171,8 @@ final class DisplayManager {
                 continue
             }
             display.isEnabled = active.contains(id)
+            display.isBuiltin = DisplayPolicy.isBuiltin(answer: CGDisplayIsBuiltin(id), id: id, builtins: builtins)
             if display.isEnabled {
-                display.isBuiltin = DisplayPolicy.isTrue(CGDisplayIsBuiltin(id))
                 display.name = Self.name(of: id)
                 if display.ddc == nil || ddc[id] == nil {
                     display.ddc = ddc[id]
@@ -183,7 +180,6 @@ final class DisplayManager {
                     display.volume = nil
                 }
             } else {
-                display.isBuiltin = display.isBuiltin || builtins.contains(id)
                 display.ddc = nil
             }
             next.append(display)
@@ -533,10 +529,31 @@ final class DisplayManager {
 
         let id = display.id
         let name = display.name
+        let builtins = builtinIDs
         display.isEnabled = enabled
         changing.insert(id)
 
         configQueue.asyncAfter(deadline: .now() + 0.3) {
+            if !enabled {
+                // Check again with the displays as they are now, as presets do: a display that was about to turn on
+                // may have failed, or a display may have gone away since the menu showed them.
+                let live = Self.liveStates(disabled: [], builtins: builtins)
+                guard DisplayPolicy.canDisable([id], in: live) else {
+                    Self.log.notice("""
+                        Turn off \(id, privacy: .public): refused on the check again; \
+                        displays: \(Self.describe(live), privacy: .public)
+                        """)
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            self.changing.remove(id)
+                            display.isEnabled = true
+                            self.lastError = "You cannot turn off the last display that is on."
+                            self.scheduleRefresh()
+                        }
+                    }
+                    return
+                }
+            }
             let error = Self.applyEnabled(id, enabled, name: name, configure: configure)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
@@ -600,7 +617,8 @@ final class DisplayManager {
     }
 
     /// The on/off decisions (`DisplayPolicy`), so a failure can be read later:
-    /// `log show --predicate 'subsystem == "dev.m9t.OpenDisplay"' --info`.
+    /// `log show --predicate 'subsystem == "dev.m9t.OpenDisplay"' --info --debug`. macOS does not store debug messages
+    /// by default: to see them, use `log stream --level debug` with the same predicate.
     nonisolated static let log = Logger(subsystem: "dev.m9t.OpenDisplay", category: "displays")
 
     /// The states with what macOS reports about each display now, for the log.
@@ -616,7 +634,9 @@ final class DisplayManager {
     }
 
     @ObservationIgnored private var isRestoring = false
-    /// Tries after a failed attempt to turn a display on again, before the next display change.
+    /// Tries after a failed attempt to turn a display on again, before the next display change. The limit is per chain:
+    /// each refresh starts a new chain at 0, so if a failed attempt makes macOS post a display change, the attempts go
+    /// on every 3 to 5 seconds while no display is on.
     private static let restoreRetries = 3
 
     /// When the last physical display that is on goes away (for example, the TV is unplugged while OpenDisplay has
@@ -653,26 +673,29 @@ final class DisplayManager {
                 displays: \(Self.describe(states), privacy: .public)
                 """)
             var restored: CGDirectDisplayID?
-            var errors: [String] = []
+            var failures: [(id: UInt32, error: String)] = []
             for id in candidates {
                 if let error = Self.applyEnabled(id, true, name: disabled[id] ?? "Display \(id)", configure: configure) {
-                    Self.log.error("Keep a display on: \(error, privacy: .private)")
-                    errors.append(error)
+                    Self.log.error("""
+                        Keep a display on: could not turn on \(id, privacy: .public): \(error, privacy: .private)
+                        """)
+                    failures.append((id, error))
                 } else {
                     Self.log.notice("Keep a display on: turned on \(id, privacy: .public)")
                     restored = id
                     break
                 }
             }
-            let error = errors.first
+            let outcome = DisplayPolicy.restoreOutcome(restored: restored, failures: failures, in: states,
+                                                       attempt: retry, maxRetries: Self.restoreRetries)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     self.isRestoring = false
                     guard let restored else {
-                        guard let error else { return }
-                        self.lastError = error
+                        // A display that failed keeps its mark in `disabled`, so the next check tries it again.
+                        if let error = outcome.error { self.lastError = error }
                         // Right after a display goes away, macOS may refuse. Try a few more times, not forever.
-                        if retry < Self.restoreRetries {
+                        if outcome.retries {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                                 MainActor.assumeIsolated { self.keepADisplayOn(retry: retry + 1) }
                             }

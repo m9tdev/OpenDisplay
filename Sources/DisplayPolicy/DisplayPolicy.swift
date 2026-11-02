@@ -59,21 +59,46 @@ public enum DisplayPolicy {
     /// `builtins`: the displays that were built-in when they were last on.
     ///
     /// For a display ID that macOS does not know now, such as the built-in display while it is off, the
-    /// `CGDisplayIs…` functions return -1, not 0. So "online" and "active" come from the lists. Built-in is an answer of
-    /// 1, or, while macOS does not know the display (-1), the display is in `builtins`.
+    /// `CGDisplayIs…` functions return -1, not 0. So "online" and "active" come from the lists. Built-in is an answer
+    /// of 1, or, while macOS does not know the display (-1), the display is in `builtins`.
     public static func states(online: [UInt32], active: [UInt32], reports: [DisplayReport],
                               disabled: Set<UInt32>, builtins: Set<UInt32> = []) -> [DisplayState] {
         let online = Set(online), active = Set(active)
         return reports.map { report in
-            let isBuiltin = report.isBuiltin == 0 ? false : isTrue(report.isBuiltin) || builtins.contains(report.id)
-            return DisplayState(id: report.id, isBuiltin: isBuiltin, isOnline: online.contains(report.id),
-                         isActive: active.contains(report.id), vendor: report.vendor, model: report.model,
-                         isDisabledByUs: disabled.contains(report.id))
+            DisplayState(id: report.id,
+                         isBuiltin: isBuiltin(answer: report.isBuiltin, id: report.id, builtins: builtins),
+                         isOnline: online.contains(report.id), isActive: active.contains(report.id),
+                         vendor: report.vendor, model: report.model, isDisabledByUs: disabled.contains(report.id))
         }
     }
 
     /// True only for an answer of 1 from a `CGDisplayIs…` function: it returns -1 for a display it does not know.
     public static func isTrue(_ answer: Int32) -> Bool { answer == 1 }
+
+    /// Built-in, from the answer of `CGDisplayIsBuiltin`: 1 is built-in, 0 is not, and for any other answer (-1, while
+    /// macOS does not know the display), the remembered built-in displays decide.
+    public static func isBuiltin(answer: Int32, id: UInt32, builtins: Set<UInt32>) -> Bool {
+        switch answer {
+        case 1: true
+        case 0: false
+        default: builtins.contains(id)
+        }
+    }
+
+    /// The remembered built-in displays after macOS answered `CGDisplayIsBuiltin` for the displays that are on: an
+    /// answer of 1 adds the display, 0 removes it (its ID now belongs to another display), and any other answer keeps
+    /// what was remembered.
+    public static func rememberedBuiltins(_ builtins: Set<UInt32>, answers: [UInt32: Int32]) -> Set<UInt32> {
+        var builtins = builtins
+        for (id, answer) in answers {
+            switch answer {
+            case 1: builtins.insert(id)
+            case 0: builtins.remove(id)
+            default: break
+            }
+        }
+        return builtins
+    }
 
     /// True for a display that is not a real screen, from its `CGDisplayVendorNumber` and `CGDisplayModelNumber`.
     ///
@@ -95,6 +120,37 @@ public enum DisplayPolicy {
         let remaining = displays.filter { $0.isActive && !ids.contains($0.id) }
         guard displays.contains(where: { !$0.isVirtual }) else { return !remaining.isEmpty }
         return remaining.contains { !$0.isVirtual }
+    }
+
+    /// True if a failure to turn the display `id` on again should show an error: for the built-in display, and for a
+    /// display that is online. An offline display that is not remembered as built-in may have been unplugged after
+    /// OpenDisplay turned it off (a stale ID), so its failure shows no error. But macOS also reports a display that is
+    /// off as offline, so it is still tried again (see `restoreOutcome`).
+    public static func showsRestoreError(of id: UInt32, in displays: [DisplayState]) -> Bool {
+        guard let display = displays.first(where: { $0.id == id }) else { return false }
+        return display.isBuiltin || display.isOnline
+    }
+
+    /// What to do after an attempt to turn a display on again: try again, and the error to show (nil: none).
+    public struct RestoreOutcome: Equatable, Sendable {
+        public var retries: Bool
+        public var error: String?
+
+        public init(retries: Bool, error: String?) {
+            self.retries = retries
+            self.error = error
+        }
+    }
+
+    /// After an attempt to turn a display on again: `restored` is the display that turned on, if any, and `failures`
+    /// the displays that did not, with their errors. `attempt` counts from 0, and at most `maxRetries` retries follow.
+    /// While no display came back on, it tries again, also after failures that show no error: the display may only be
+    /// off, not unplugged.
+    public static func restoreOutcome(restored: UInt32?, failures: [(id: UInt32, error: String)],
+                                      in displays: [DisplayState], attempt: Int, maxRetries: Int) -> RestoreOutcome {
+        guard restored == nil else { return RestoreOutcome(retries: false, error: nil) }
+        let error = failures.first { showsRestoreError(of: $0.id, in: displays) }?.error
+        return RestoreOutcome(retries: !failures.isEmpty && attempt < maxRetries, error: error)
     }
 
     /// The displays to try to turn on again, in order, because no display is on. Empty if nothing needs to change.

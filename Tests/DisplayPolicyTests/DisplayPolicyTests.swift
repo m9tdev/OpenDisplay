@@ -107,14 +107,13 @@ private extension DisplayState {
     }
 }
 
-/// Display states built from vendor and model numbers: the stand-in display of macOS ("unkn"/"virt") is the only display
-/// on, and the built-in display is off, with vendor and model 0xFFFFFFFF.
+/// Display states built with the vendor and model initializer, while the built-in display is off.
 final class StandInDisplayTests: XCTestCase {
     /// The built-in display as macOS reports it while it is off: offline, with vendor and model 0xFFFFFFFF.
     let builtinOff = DisplayState(id: 1, isBuiltin: true, isOnline: false, isActive: false, vendor: 0xFFFF_FFFF,
                                   model: 0xFFFF_FFFF, isDisabledByUs: true)
 
-    func testTheBuiltinDisplayTurnsOnAgainWithTheKnownPlaceholder() {
+    func testTheBuiltinDisplayTurnsOnAgainWhileOnlyTheStandInIsOn() {
         let standIn = DisplayState(id: 7, isBuiltin: false, isOnline: true, isActive: true, vendor: 0x756E_6B6E,
                                    model: 0x7669_7274, isDisabledByUs: false)
         XCTAssertEqual(DisplayPolicy.displaysToRestore(in: [standIn, builtinOff]), [1])
@@ -195,5 +194,98 @@ final class RememberedBuiltinTests: XCTestCase {
         let external = DisplayReport(id: 4, isBuiltin: 0, isOnline: 1, isActive: 1, vendor: 0x410C, model: 0)
         let states = DisplayPolicy.states(online: [4], active: [4], reports: [external], disabled: [], builtins: [4])
         XCTAssertEqual(states.first?.isBuiltin, false)
+    }
+}
+
+/// Which displays are remembered as built-in, from the answers of CGDisplayIsBuiltin for the displays that are on.
+final class BuiltinMemoryTests: XCTestCase {
+    func testAnAnswerOfOneAddsTheDisplay() {
+        XCTAssertEqual(DisplayPolicy.rememberedBuiltins([], answers: [1: 1, 3: 0]), [1])
+    }
+
+    func testAnAnswerOfZeroRemovesTheDisplay() {
+        // The ID was the built-in display before, and now belongs to an external display.
+        XCTAssertEqual(DisplayPolicy.rememberedBuiltins([1, 4], answers: [4: 0]), [1])
+    }
+
+    func testAnUnknownAnswerKeepsTheMemory() {
+        XCTAssertEqual(DisplayPolicy.rememberedBuiltins([1], answers: [1: -1]), [1])
+        XCTAssertEqual(DisplayPolicy.rememberedBuiltins([], answers: [1: -1]), [])
+    }
+
+    func testIsBuiltinUsesTheMemoryOnlyForAnUnknownAnswer() {
+        XCTAssertTrue(DisplayPolicy.isBuiltin(answer: 1, id: 1, builtins: []))
+        XCTAssertFalse(DisplayPolicy.isBuiltin(answer: 0, id: 1, builtins: [1]))
+        XCTAssertTrue(DisplayPolicy.isBuiltin(answer: -1, id: 1, builtins: [1]))
+        XCTAssertFalse(DisplayPolicy.isBuiltin(answer: -1, id: 2, builtins: [1]))
+    }
+}
+
+/// Which failures to turn a display on again show an error.
+final class RestoreFailureTests: XCTestCase {
+    let standIn = DisplayState(id: 13, isVirtual: true)
+
+    func testAFailureForTheBuiltinDisplayShowsAnError() {
+        // Off, macOS does not know it, but it is remembered as built-in.
+        let builtin = DisplayState(id: 1, isBuiltin: true, isOnline: false, isActive: false, isDisabledByUs: true)
+        XCTAssertTrue(DisplayPolicy.showsRestoreError(of: 1, in: [standIn, builtin]))
+    }
+
+    func testAFailureForAnOnlineDisplayShowsAnError() {
+        let monitor = DisplayState(id: 2, isOnline: true, isActive: false, isDisabledByUs: true)
+        XCTAssertTrue(DisplayPolicy.showsRestoreError(of: 2, in: [standIn, monitor]))
+    }
+
+    func testAFailureForAnOfflineDisplayThatIsNotBuiltinShowsNoError() {
+        // macOS reports a display that is off as offline, so it may be unplugged (a stale ID) or just off. Its failure
+        // shows no error, but it is still tried again (see `RestoreOutcomeTests`).
+        let offline = DisplayState(id: 4, isOnline: false, isActive: false, isDisabledByUs: true)
+        XCTAssertFalse(DisplayPolicy.showsRestoreError(of: 4, in: [standIn, offline]))
+    }
+
+    func testAFailureForAnUnknownDisplayShowsNoError() {
+        XCTAssertFalse(DisplayPolicy.showsRestoreError(of: 9, in: [standIn]))
+    }
+}
+
+/// What happens after an attempt to turn a display on again, when no physical display is on.
+final class RestoreOutcomeTests: XCTestCase {
+    let standIn = DisplayState(id: 13, isVirtual: true)
+    /// Off, so offline for macOS, and not remembered as built-in: it may be unplugged, or just off.
+    let monitorOff = DisplayState(id: 2, isOnline: false, isActive: false, isDisabledByUs: true)
+    let builtinOff = DisplayState(id: 1, isBuiltin: true, isOnline: false, isActive: false, isDisabledByUs: true)
+
+    func outcome(restored: UInt32? = nil, failures: [(id: UInt32, error: String)], attempt: Int = 0)
+        -> DisplayPolicy.RestoreOutcome {
+        DisplayPolicy.restoreOutcome(restored: restored, failures: failures, in: [standIn, monitorOff, builtinOff],
+                                     attempt: attempt, maxRetries: 3)
+    }
+
+    func testAQuietFailureIsStillTriedAgain() {
+        // A Mac mini: the monitor that OpenDisplay turned off is the only display left, and turning it on failed.
+        XCTAssertEqual(outcome(failures: [(2, "Could not turn on Display 2")]),
+                       DisplayPolicy.RestoreOutcome(retries: true, error: nil))
+    }
+
+    func testAFailureOfTheBuiltinDisplayShowsItsErrorAndIsTriedAgain() {
+        XCTAssertEqual(outcome(failures: [(1, "Could not turn on Built-in"), (2, "Could not turn on Display 2")]),
+                       DisplayPolicy.RestoreOutcome(retries: true, error: "Could not turn on Built-in"))
+    }
+
+    func testTheRetriesStop() {
+        // Attempts 0, 1, and 2 are followed by a retry; attempt 3 is the last.
+        XCTAssertEqual(outcome(failures: [(2, "Could not turn on Display 2")], attempt: 2),
+                       DisplayPolicy.RestoreOutcome(retries: true, error: nil))
+        XCTAssertEqual(outcome(failures: [(2, "Could not turn on Display 2")], attempt: 3),
+                       DisplayPolicy.RestoreOutcome(retries: false, error: nil))
+    }
+
+    func testNothingMoreToDoOnceADisplayIsOn() {
+        XCTAssertEqual(outcome(restored: 2, failures: [(1, "Could not turn on Built-in")]),
+                       DisplayPolicy.RestoreOutcome(retries: false, error: nil))
+    }
+
+    func testNothingToTryMeansNoRetry() {
+        XCTAssertEqual(outcome(failures: []), DisplayPolicy.RestoreOutcome(retries: false, error: nil))
     }
 }
