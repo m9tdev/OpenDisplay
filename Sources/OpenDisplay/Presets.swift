@@ -101,7 +101,7 @@ extension DisplayManager {
         let turnsOff = Set(targets.filter { !$0.state.isEnabled }.map(\.id))
         let allowed = DisplayPolicy.canDisable(turnsOff, in: after)
         Self.log.notice("""
-            Preset \(preset.name, privacy: .public): turns off \(turnsOff.sorted(), privacy: .public), \
+            Preset \(preset.name, privacy: .private): turns off \(turnsOff.sorted(), privacy: .public), \
             \(allowed ? "allowed" : "refused", privacy: .public); after: \(Self.describe(after), privacy: .public)
             """)
         guard allowed else {

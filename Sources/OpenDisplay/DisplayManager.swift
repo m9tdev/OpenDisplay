@@ -615,11 +615,15 @@ final class DisplayManager {
         let disabled = self.disabled
         let states = Self.liveStates(disabled: Set(disabled.keys))
         let candidates = DisplayPolicy.displaysToRestore(in: states)
+        guard !candidates.isEmpty else {
+            // The usual case, after each display change: only at debug level.
+            Self.log.debug("Keep a display on: nothing to turn on; displays: \(Self.describe(states), privacy: .public)")
+            return
+        }
         Self.log.notice("""
             Keep a display on: turn on \(candidates, privacy: .public); \
             displays: \(Self.describe(states), privacy: .public)
             """)
-        guard !candidates.isEmpty else { return }
         isRestoring = true
         // Wait a moment: after wake, a display can take a few seconds to come back on by itself.
         configQueue.asyncAfter(deadline: .now() + 2) {
@@ -634,7 +638,7 @@ final class DisplayManager {
             var errors: [String] = []
             for id in candidates {
                 if let error = Self.applyEnabled(id, true, name: disabled[id] ?? "Display \(id)", configure: configure) {
-                    Self.log.error("Keep a display on: \(error, privacy: .public)")
+                    Self.log.error("Keep a display on: \(error, privacy: .private)")
                     errors.append(error)
                 } else {
                     Self.log.notice("Keep a display on: turned on \(id, privacy: .public)")
