@@ -221,28 +221,68 @@ final class BuiltinMemoryTests: XCTestCase {
     }
 }
 
-/// Which failures to turn a display on again show an error and are tried again.
+/// Which failures to turn a display on again show an error.
 final class RestoreFailureTests: XCTestCase {
     let standIn = DisplayState(id: 13, isVirtual: true)
 
-    func testAFailureForTheBuiltinDisplayIsReported() {
+    func testAFailureForTheBuiltinDisplayShowsAnError() {
         // Off, macOS does not know it, but it is remembered as built-in.
         let builtin = DisplayState(id: 1, isBuiltin: true, isOnline: false, isActive: false, isDisabledByUs: true)
         XCTAssertTrue(DisplayPolicy.showsRestoreError(of: 1, in: [standIn, builtin]))
     }
 
-    func testAFailureForAnOnlineDisplayIsReported() {
+    func testAFailureForAnOnlineDisplayShowsAnError() {
         let monitor = DisplayState(id: 2, isOnline: true, isActive: false, isDisabledByUs: true)
         XCTAssertTrue(DisplayPolicy.showsRestoreError(of: 2, in: [standIn, monitor]))
     }
 
-    func testAFailureForAnOfflineDisplayThatIsNotBuiltinIsQuiet() {
-        // For example a monitor that was turned off and then unplugged: its ID is stale.
-        let unplugged = DisplayState(id: 4, isOnline: false, isActive: false, isDisabledByUs: true)
-        XCTAssertFalse(DisplayPolicy.showsRestoreError(of: 4, in: [standIn, unplugged]))
+    func testAFailureForAnOfflineDisplayThatIsNotBuiltinShowsNoError() {
+        // macOS reports a display that is off as offline, so it may be unplugged (a stale ID) or just off. Its failure
+        // shows no error, but it is still tried again (see `RestoreOutcomeTests`).
+        let offline = DisplayState(id: 4, isOnline: false, isActive: false, isDisabledByUs: true)
+        XCTAssertFalse(DisplayPolicy.showsRestoreError(of: 4, in: [standIn, offline]))
     }
 
-    func testAFailureForAnUnknownDisplayIsQuiet() {
+    func testAFailureForAnUnknownDisplayShowsNoError() {
         XCTAssertFalse(DisplayPolicy.showsRestoreError(of: 9, in: [standIn]))
+    }
+}
+
+/// What happens after an attempt to turn a display on again, when no physical display is on.
+final class RestoreOutcomeTests: XCTestCase {
+    let standIn = DisplayState(id: 13, isVirtual: true)
+    /// Off, so offline for macOS, and not remembered as built-in: it may be unplugged, or just off.
+    let monitorOff = DisplayState(id: 2, isOnline: false, isActive: false, isDisabledByUs: true)
+    let builtinOff = DisplayState(id: 1, isBuiltin: true, isOnline: false, isActive: false, isDisabledByUs: true)
+
+    func outcome(restored: UInt32? = nil, failures: [(id: UInt32, error: String)], attempt: Int = 0)
+        -> DisplayPolicy.RestoreOutcome {
+        DisplayPolicy.restoreOutcome(restored: restored, failures: failures, in: [standIn, monitorOff, builtinOff],
+                                     attempt: attempt, maxRetries: 3)
+    }
+
+    func testAQuietFailureIsStillTriedAgain() {
+        // A Mac mini: the monitor that OpenDisplay turned off is the only display left, and turning it on failed.
+        XCTAssertEqual(outcome(failures: [(2, "Could not turn on Display 2")]),
+                       DisplayPolicy.RestoreOutcome(retries: true, error: nil))
+    }
+
+    func testAFailureOfTheBuiltinDisplayShowsItsErrorAndIsTriedAgain() {
+        XCTAssertEqual(outcome(failures: [(1, "Could not turn on Built-in"), (2, "Could not turn on Display 2")]),
+                       DisplayPolicy.RestoreOutcome(retries: true, error: "Could not turn on Built-in"))
+    }
+
+    func testTheRetriesStop() {
+        XCTAssertEqual(outcome(failures: [(2, "Could not turn on Display 2")], attempt: 3),
+                       DisplayPolicy.RestoreOutcome(retries: false, error: nil))
+    }
+
+    func testNothingMoreToDoOnceADisplayIsOn() {
+        XCTAssertEqual(outcome(restored: 2, failures: [(1, "Could not turn on Built-in")]),
+                       DisplayPolicy.RestoreOutcome(retries: false, error: nil))
+    }
+
+    func testNothingToTryMeansNoRetry() {
+        XCTAssertEqual(outcome(failures: []), DisplayPolicy.RestoreOutcome(retries: false, error: nil))
     }
 }
