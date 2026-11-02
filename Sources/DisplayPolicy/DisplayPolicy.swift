@@ -122,6 +122,11 @@ public enum DisplayPolicy {
         return remaining.contains { !$0.isVirtual }
     }
 
+    /// True if a failure to turn the display `id` on again should show an error and be tried again.
+    public static func reportsRestoreFailure(of id: UInt32, in displays: [DisplayState]) -> Bool {
+        true
+    }
+
     /// The displays to try to turn on again, in order, because no display is on. Empty if nothing needs to change.
     /// Only displays that OpenDisplay turned off, and no virtual ones. The built-in display first, then the online
     /// displays, then the others, each by ID (macOS may report a display that is off as offline).

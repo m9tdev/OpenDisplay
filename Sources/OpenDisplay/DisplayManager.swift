@@ -674,8 +674,13 @@ final class DisplayManager {
             var errors: [String] = []
             for id in candidates {
                 if let error = Self.applyEnabled(id, true, name: disabled[id] ?? "Display \(id)", configure: configure) {
-                    Self.log.error("Keep a display on: \(error, privacy: .private)")
-                    errors.append(error)
+                    if DisplayPolicy.reportsRestoreFailure(of: id, in: states) {
+                        Self.log.error("Keep a display on: \(error, privacy: .private)")
+                        errors.append(error)
+                    } else {
+                        // Most likely a display that is no longer connected: its ID is stale. Not an error to show.
+                        Self.log.notice("Keep a display on: could not turn on \(id, privacy: .public), not connected")
+                    }
                 } else {
                     Self.log.notice("Keep a display on: turned on \(id, privacy: .public)")
                     restored = id
