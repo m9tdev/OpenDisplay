@@ -59,16 +59,16 @@ public enum DisplayPolicy {
     /// `builtins`: the displays that were built-in when they were last on.
     ///
     /// For a display ID that macOS does not know now, such as the built-in display while it is off, the
-    /// `CGDisplayIs…` functions return -1, not 0. So "online" and "active" come from the lists. Built-in is an answer of
-    /// 1, or, while macOS does not know the display (-1), the display is in `builtins`.
+    /// `CGDisplayIs…` functions return -1, not 0. So "online" and "active" come from the lists. Built-in is an answer
+    /// of 1, or, while macOS does not know the display (-1), the display is in `builtins`.
     public static func states(online: [UInt32], active: [UInt32], reports: [DisplayReport],
                               disabled: Set<UInt32>, builtins: Set<UInt32> = []) -> [DisplayState] {
         let online = Set(online), active = Set(active)
         return reports.map { report in
-            return DisplayState(id: report.id,
-                                isBuiltin: isBuiltin(answer: report.isBuiltin, id: report.id, builtins: builtins), isOnline: online.contains(report.id),
-                         isActive: active.contains(report.id), vendor: report.vendor, model: report.model,
-                         isDisabledByUs: disabled.contains(report.id))
+            DisplayState(id: report.id,
+                         isBuiltin: isBuiltin(answer: report.isBuiltin, id: report.id, builtins: builtins),
+                         isOnline: online.contains(report.id), isActive: active.contains(report.id),
+                         vendor: report.vendor, model: report.model, isDisabledByUs: disabled.contains(report.id))
         }
     }
 
