@@ -123,8 +123,9 @@ public enum DisplayPolicy {
     }
 
     /// True if a failure to turn the display `id` on again should show an error: for the built-in display, and for a
-    /// display that is still connected. An offline display that is not built-in may have been unplugged after
-    /// OpenDisplay turned it off, so its ID is stale, and its failure is quiet.
+    /// display that is online. An offline display that is not remembered as built-in may have been unplugged after
+    /// OpenDisplay turned it off (a stale ID), so its failure shows no error. But macOS also reports a display that is
+    /// off as offline, so it is still tried again (see `restoreOutcome`).
     public static func showsRestoreError(of id: UInt32, in displays: [DisplayState]) -> Bool {
         guard let display = displays.first(where: { $0.id == id }) else { return false }
         return display.isBuiltin || display.isOnline
@@ -143,11 +144,13 @@ public enum DisplayPolicy {
 
     /// After an attempt to turn a display on again: `restored` is the display that turned on, if any, and `failures`
     /// the displays that did not, with their errors. `attempt` counts from 0, and at most `maxRetries` retries follow.
+    /// While no display came back on, it tries again, also after failures that show no error: the display may only be
+    /// off, not unplugged.
     public static func restoreOutcome(restored: UInt32?, failures: [(id: UInt32, error: String)],
                                       in displays: [DisplayState], attempt: Int, maxRetries: Int) -> RestoreOutcome {
         guard restored == nil else { return RestoreOutcome(retries: false, error: nil) }
         let error = failures.first { showsRestoreError(of: $0.id, in: displays) }?.error
-        return RestoreOutcome(retries: error != nil && attempt < maxRetries, error: error)
+        return RestoreOutcome(retries: !failures.isEmpty && attempt < maxRetries, error: error)
     }
 
     /// The displays to try to turn on again, in order, because no display is on. Empty if nothing needs to change.
