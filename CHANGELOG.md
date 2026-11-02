@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/m9tdev/OpenDisplay/compare/v0.2.1...v0.2.2) (2026-11-02)
+
+
+### Bug Fixes
+
+* display guard follow-ups ([#5](https://github.com/m9tdev/OpenDisplay/issues/5)) ([96596df](https://github.com/m9tdev/OpenDisplay/commit/96596df228107159f080d9eb1f2625cedbfe21ea))
+
 ## [0.2.1](https://github.com/m9tdev/OpenDisplay/compare/v0.2.0...v0.2.1) (2026-11-02)
 
 
