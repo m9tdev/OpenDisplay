@@ -131,14 +131,17 @@ public enum DisplayPolicy {
         return display.isBuiltin || display.isOnline
     }
 
-    /// What to do after an attempt to turn a display on again: try again, and the error to show (nil: none).
+    /// What to do after an attempt to turn a display on again: try again, the error to show (nil: none), and whether
+    /// to clear an error that an earlier attempt showed.
     public struct RestoreOutcome: Equatable, Sendable {
         public var retries: Bool
         public var error: String?
+        public var clearsError: Bool
 
-        public init(retries: Bool, error: String?) {
+        public init(retries: Bool, error: String?, clearsError: Bool = false) {
             self.retries = retries
             self.error = error
+            self.clearsError = clearsError
         }
     }
 
