@@ -169,3 +169,34 @@ final class RawAnswersTests: XCTestCase {
         XCTAssertFalse(DisplayPolicy.canDisable([1], in: states))
     }
 }
+
+/// While the built-in display is off, macOS answers -1 to CGDisplayIsBuiltin, so the built-in flag comes from when the
+/// display was last on.
+final class RememberedBuiltinTests: XCTestCase {
+    let standIn = DisplayReport(id: 13, isBuiltin: 0, isOnline: 1, isActive: 1, vendor: 0x756E_6B6E, model: 0x7669_7274)
+    /// A built-in display with a higher ID than an external display, both off.
+    let builtinOff = DisplayReport(id: 4, isBuiltin: -1, isOnline: -1, isActive: -1, vendor: 0xFFFF_FFFF,
+                                   model: 0xFFFF_FFFF)
+    let monitorOff = DisplayReport(id: 2, isBuiltin: -1, isOnline: -1, isActive: -1, vendor: 0xFFFF_FFFF,
+                                   model: 0xFFFF_FFFF)
+
+    func testARememberedBuiltinDisplayThatIsOffTurnsOnFirst() {
+        let states = DisplayPolicy.states(online: [13], active: [13], reports: [standIn, monitorOff, builtinOff],
+                                          disabled: [2, 4], builtins: [4])
+        XCTAssertEqual(states.first { $0.id == 4 }?.isBuiltin, true)
+        XCTAssertEqual(DisplayPolicy.displaysToRestore(in: states), [4, 2])
+    }
+
+    func testWithoutTheMemoryTheLowestIDComesFirst() {
+        let states = DisplayPolicy.states(online: [13], active: [13], reports: [standIn, monitorOff, builtinOff],
+                                          disabled: [2, 4])
+        XCTAssertEqual(DisplayPolicy.displaysToRestore(in: states), [2, 4])
+    }
+
+    func testAnAnswerOfMacOSWinsOverTheMemory() {
+        // A display ID that was built-in, now used by an external display that is on.
+        let external = DisplayReport(id: 4, isBuiltin: 0, isOnline: 1, isActive: 1, vendor: 0x410C, model: 0)
+        let states = DisplayPolicy.states(online: [4], active: [4], reports: [external], disabled: [], builtins: [4])
+        XCTAssertEqual(states.first?.isBuiltin, false)
+    }
+}
