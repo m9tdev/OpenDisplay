@@ -600,7 +600,8 @@ final class DisplayManager {
     }
 
     /// The on/off decisions (`DisplayPolicy`), so a failure can be read later:
-    /// `log show --predicate 'subsystem == "dev.m9t.OpenDisplay"' --info`.
+    /// `log show --predicate 'subsystem == "dev.m9t.OpenDisplay"' --info --debug`. macOS does not store debug messages
+    /// by default: to see them, use `log stream --level debug` with the same predicate.
     nonisolated static let log = Logger(subsystem: "dev.m9t.OpenDisplay", category: "displays")
 
     /// The states with what macOS reports about each display now, for the log.
