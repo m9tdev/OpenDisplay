@@ -671,31 +671,29 @@ final class DisplayManager {
                 displays: \(Self.describe(states), privacy: .public)
                 """)
             var restored: CGDirectDisplayID?
-            var errors: [String] = []
+            var failures: [(id: UInt32, error: String)] = []
             for id in candidates {
                 if let error = Self.applyEnabled(id, true, name: disabled[id] ?? "Display \(id)", configure: configure) {
-                    if DisplayPolicy.reportsRestoreFailure(of: id, in: states) {
-                        Self.log.error("Keep a display on: \(error, privacy: .private)")
-                        errors.append(error)
-                    } else {
-                        // Most likely a display that is no longer connected: its ID is stale. Not an error to show.
-                        Self.log.notice("Keep a display on: could not turn on \(id, privacy: .public), not connected")
-                    }
+                    Self.log.error("""
+                        Keep a display on: could not turn on \(id, privacy: .public): \(error, privacy: .private)
+                        """)
+                    failures.append((id, error))
                 } else {
                     Self.log.notice("Keep a display on: turned on \(id, privacy: .public)")
                     restored = id
                     break
                 }
             }
-            let error = errors.first
+            let outcome = DisplayPolicy.restoreOutcome(restored: restored, failures: failures, in: states,
+                                                       attempt: retry, maxRetries: Self.restoreRetries)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     self.isRestoring = false
                     guard let restored else {
-                        guard let error else { return }
-                        self.lastError = error
+                        // A display that failed keeps its mark in `disabled`, so the next check tries it again.
+                        if let error = outcome.error { self.lastError = error }
                         // Right after a display goes away, macOS may refuse. Try a few more times, not forever.
-                        if retry < Self.restoreRetries {
+                        if outcome.retries {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                                 MainActor.assumeIsolated { self.keepADisplayOn(retry: retry + 1) }
                             }

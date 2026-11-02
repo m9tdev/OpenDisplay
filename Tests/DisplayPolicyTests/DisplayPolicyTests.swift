@@ -228,21 +228,21 @@ final class RestoreFailureTests: XCTestCase {
     func testAFailureForTheBuiltinDisplayIsReported() {
         // Off, macOS does not know it, but it is remembered as built-in.
         let builtin = DisplayState(id: 1, isBuiltin: true, isOnline: false, isActive: false, isDisabledByUs: true)
-        XCTAssertTrue(DisplayPolicy.reportsRestoreFailure(of: 1, in: [standIn, builtin]))
+        XCTAssertTrue(DisplayPolicy.showsRestoreError(of: 1, in: [standIn, builtin]))
     }
 
     func testAFailureForAnOnlineDisplayIsReported() {
         let monitor = DisplayState(id: 2, isOnline: true, isActive: false, isDisabledByUs: true)
-        XCTAssertTrue(DisplayPolicy.reportsRestoreFailure(of: 2, in: [standIn, monitor]))
+        XCTAssertTrue(DisplayPolicy.showsRestoreError(of: 2, in: [standIn, monitor]))
     }
 
     func testAFailureForAnOfflineDisplayThatIsNotBuiltinIsQuiet() {
         // For example a monitor that was turned off and then unplugged: its ID is stale.
         let unplugged = DisplayState(id: 4, isOnline: false, isActive: false, isDisabledByUs: true)
-        XCTAssertFalse(DisplayPolicy.reportsRestoreFailure(of: 4, in: [standIn, unplugged]))
+        XCTAssertFalse(DisplayPolicy.showsRestoreError(of: 4, in: [standIn, unplugged]))
     }
 
     func testAFailureForAnUnknownDisplayIsQuiet() {
-        XCTAssertFalse(DisplayPolicy.reportsRestoreFailure(of: 9, in: [standIn]))
+        XCTAssertFalse(DisplayPolicy.showsRestoreError(of: 9, in: [standIn]))
     }
 }
