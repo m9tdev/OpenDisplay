@@ -706,9 +706,13 @@ final class DisplayManager {
             }
             let outcome = DisplayPolicy.restoreOutcome(restored: restored, failures: failures, in: states,
                                                        attempt: retry, maxRetries: Self.restoreRetries)
+            let restoreErrorIsStale = DisplayPolicy.restoreErrorIsStale(restored: restored, failures: failures)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     self.isRestoring = false
+                    if restoreErrorIsStale {
+                        self.clearRestoreError()
+                    }
                     guard let restored else {
                         // A display that failed keeps its mark in `disabled`, so the next check tries it again.
                         if let error = outcome.error {
@@ -724,7 +728,6 @@ final class DisplayManager {
                         }
                         return
                     }
-                    self.clearRestoreError()
                     var disabled = self.disabled
                     disabled[restored] = nil
                     self.disabled = disabled

@@ -153,6 +153,12 @@ public enum DisplayPolicy {
         return RestoreOutcome(retries: !failures.isEmpty && attempt < maxRetries, error: error)
     }
 
+    /// True if, after the check again of an attempt to turn a display on (`restored`, `failures` as for
+    /// `restoreOutcome`), the error of an earlier failed attempt is stale.
+    public static func restoreErrorIsStale(restored: UInt32?, failures: [(id: UInt32, error: String)]) -> Bool {
+        restored != nil
+    }
+
     /// The error to show after a check found a physical display on, or turned one on again. `restoreError` is the
     /// error that an earlier failed attempt to turn a display on showed: it is stale now, so it is cleared if it is
     /// still the error shown. Any other error stays.
