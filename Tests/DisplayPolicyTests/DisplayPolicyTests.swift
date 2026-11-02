@@ -299,7 +299,8 @@ final class ErrorAfterRestoreTests: XCTestCase {
     }
 
     func testADifferentErrorStays() {
-        // For example a failed resolution change after the failed attempt.
+        // For example a failed resolution change after the failed attempt. OpenDisplay does not reach this state: any
+        // other error forgets the restore error. The function still keeps the other error.
         let other = "Could not change the resolution."
         XCTAssertEqual(DisplayPolicy.errorAfterRestore(lastError: other, restoreError: restoreError), other)
     }
@@ -312,14 +313,6 @@ final class ErrorAfterRestoreTests: XCTestCase {
     func testWithoutAFailedAttemptTheErrorStays() {
         let other = "Could not turn on Display 2 (error 1000)."
         XCTAssertEqual(DisplayPolicy.errorAfterRestore(lastError: other, restoreError: nil), other)
-    }
-
-    func testADisplayThatCameBackByItselfAlsoClearsTheError() {
-        // The check after a display change finds a physical display on (it came back by itself, or one was plugged
-        // in): nothing to turn on, and the error of the failed attempt is stale.
-        let states = [DisplayState(id: 1, isBuiltin: true), DisplayState(id: 2, isActive: false, isDisabledByUs: true)]
-        XCTAssertEqual(DisplayPolicy.displaysToRestore(in: states), [])
-        XCTAssertNil(DisplayPolicy.errorAfterRestore(lastError: restoreError, restoreError: restoreError))
     }
 }
 

@@ -162,7 +162,9 @@ public enum DisplayPolicy {
 
     /// The error to show after a check found a physical display on, or turned one on again. `restoreError` is the
     /// error that an earlier failed attempt to turn a display on showed: it is stale now, so it is cleared if it is
-    /// still the error shown. Any other error stays.
+    /// still the error shown. Any other error stays. In OpenDisplay, any other write of the error already forgets
+    /// `restoreError` (see `DisplayManager.lastError`), so there `restoreError` is either nil or the error shown, and
+    /// the comparison is only a second guard.
     public static func errorAfterRestore(lastError: String?, restoreError: String?) -> String? {
         guard let restoreError, lastError == restoreError else { return lastError }
         return nil

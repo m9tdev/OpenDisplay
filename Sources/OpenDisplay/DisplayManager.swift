@@ -646,6 +646,7 @@ final class DisplayManager {
     private func clearRestoreError() {
         let error = DisplayPolicy.errorAfterRestore(lastError: lastError, restoreError: restoreError)
         if error != lastError { lastError = error }
+        // Also when the error did not change: then `lastError` was not written, and its didSet did not run.
         restoreError = nil
     }
 
