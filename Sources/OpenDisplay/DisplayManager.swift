@@ -641,7 +641,8 @@ final class DisplayManager {
     /// The error that a failed attempt to turn a display on again showed, so a later success can clear it (and only
     /// it, not an error of something else).
     @ObservationIgnored private var restoreError: String?
-    /// A physical display is on again: the error of an earlier failed attempt to turn one on is stale.
+    /// A display is on again, or nothing needs to turn on: the error of an earlier failed attempt to turn one on is
+    /// stale.
     private func clearRestoreError() {
         let error = DisplayPolicy.errorAfterRestore(lastError: lastError, restoreError: restoreError)
         if error != lastError { lastError = error }
@@ -668,6 +669,9 @@ final class DisplayManager {
         let states = Self.liveStates(disabled: Set(disabled.keys), builtins: builtins)
         let candidates = DisplayPolicy.displaysToRestore(in: states)
         guard !candidates.isEmpty else {
+            // A physical display is on (it came back by itself, or one was plugged in): an error of an earlier failed
+            // attempt to turn one on is stale.
+            if restoreError != nil { clearRestoreError() }
             // The usual case, after each display change: only at debug level.
             Self.log.debug("Keep a display on: nothing to turn on; displays: \(Self.describe(states), privacy: .public)")
             return
