@@ -529,10 +529,31 @@ final class DisplayManager {
 
         let id = display.id
         let name = display.name
+        let builtins = builtinIDs
         display.isEnabled = enabled
         changing.insert(id)
 
         configQueue.asyncAfter(deadline: .now() + 0.3) {
+            if !enabled {
+                // Check again with the displays as they are now, as presets do: a display that was about to turn on
+                // may have failed, or a display may have gone away since the menu showed them.
+                let live = Self.liveStates(disabled: [], builtins: builtins)
+                guard DisplayPolicy.canDisable([id], in: live) else {
+                    Self.log.notice("""
+                        Turn off \(id, privacy: .public): refused on the check again; \
+                        displays: \(Self.describe(live), privacy: .public)
+                        """)
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            self.changing.remove(id)
+                            display.isEnabled = true
+                            self.lastError = "You cannot turn off the last display that is on."
+                            self.scheduleRefresh()
+                        }
+                    }
+                    return
+                }
+            }
             let error = Self.applyEnabled(id, enabled, name: name, configure: configure)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
