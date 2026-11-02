@@ -196,3 +196,27 @@ final class RememberedBuiltinTests: XCTestCase {
         XCTAssertEqual(states.first?.isBuiltin, false)
     }
 }
+
+/// Which displays are remembered as built-in, from the answers of CGDisplayIsBuiltin for the displays that are on.
+final class BuiltinMemoryTests: XCTestCase {
+    func testAnAnswerOfOneAddsTheDisplay() {
+        XCTAssertEqual(DisplayPolicy.rememberedBuiltins([], answers: [1: 1, 3: 0]), [1])
+    }
+
+    func testAnAnswerOfZeroRemovesTheDisplay() {
+        // The ID was the built-in display before, and now belongs to an external display.
+        XCTAssertEqual(DisplayPolicy.rememberedBuiltins([1, 4], answers: [4: 0]), [1])
+    }
+
+    func testAnUnknownAnswerKeepsTheMemory() {
+        XCTAssertEqual(DisplayPolicy.rememberedBuiltins([1], answers: [1: -1]), [1])
+        XCTAssertEqual(DisplayPolicy.rememberedBuiltins([], answers: [1: -1]), [])
+    }
+
+    func testIsBuiltinUsesTheMemoryOnlyForAnUnknownAnswer() {
+        XCTAssertTrue(DisplayPolicy.isBuiltin(answer: 1, id: 1, builtins: []))
+        XCTAssertFalse(DisplayPolicy.isBuiltin(answer: 0, id: 1, builtins: [1]))
+        XCTAssertTrue(DisplayPolicy.isBuiltin(answer: -1, id: 1, builtins: [1]))
+        XCTAssertFalse(DisplayPolicy.isBuiltin(answer: -1, id: 2, builtins: [1]))
+    }
+}

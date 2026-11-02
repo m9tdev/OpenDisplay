@@ -65,8 +65,8 @@ public enum DisplayPolicy {
                               disabled: Set<UInt32>, builtins: Set<UInt32> = []) -> [DisplayState] {
         let online = Set(online), active = Set(active)
         return reports.map { report in
-            let isBuiltin = report.isBuiltin == 0 ? false : isTrue(report.isBuiltin) || builtins.contains(report.id)
-            return DisplayState(id: report.id, isBuiltin: isBuiltin, isOnline: online.contains(report.id),
+            return DisplayState(id: report.id,
+                                isBuiltin: isBuiltin(answer: report.isBuiltin, id: report.id, builtins: builtins), isOnline: online.contains(report.id),
                          isActive: active.contains(report.id), vendor: report.vendor, model: report.model,
                          isDisabledByUs: disabled.contains(report.id))
         }
@@ -74,6 +74,31 @@ public enum DisplayPolicy {
 
     /// True only for an answer of 1 from a `CGDisplayIs…` function: it returns -1 for a display it does not know.
     public static func isTrue(_ answer: Int32) -> Bool { answer == 1 }
+
+    /// Built-in, from the answer of `CGDisplayIsBuiltin`: 1 is built-in, 0 is not, and for any other answer (-1, while
+    /// macOS does not know the display), the remembered built-in displays decide.
+    public static func isBuiltin(answer: Int32, id: UInt32, builtins: Set<UInt32>) -> Bool {
+        switch answer {
+        case 1: true
+        case 0: false
+        default: builtins.contains(id)
+        }
+    }
+
+    /// The remembered built-in displays after macOS answered `CGDisplayIsBuiltin` for the displays that are on: an
+    /// answer of 1 adds the display, 0 removes it (its ID now belongs to another display), and any other answer keeps
+    /// what was remembered.
+    public static func rememberedBuiltins(_ builtins: Set<UInt32>, answers: [UInt32: Int32]) -> Set<UInt32> {
+        var builtins = builtins
+        for (id, answer) in answers {
+            switch answer {
+            case 1: builtins.insert(id)
+            case 0: builtins.remove(id)
+            default: break
+            }
+        }
+        return builtins
+    }
 
     /// True for a display that is not a real screen, from its `CGDisplayVendorNumber` and `CGDisplayModelNumber`.
     ///

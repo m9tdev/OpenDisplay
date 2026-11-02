@@ -153,11 +153,8 @@ final class DisplayManager {
         }
         self.disabled = disabled
 
-        var builtins = builtinIDs
-        for id in active {
-            let answer = CGDisplayIsBuiltin(id)
-            if answer == 1 { builtins.insert(id) } else if answer == 0 { builtins.remove(id) }
-        }
+        let builtins = DisplayPolicy.rememberedBuiltins(
+            builtinIDs, answers: Dictionary(uniqueKeysWithValues: active.map { ($0, CGDisplayIsBuiltin($0)) }))
         if builtins != builtinIDs { builtinIDs = builtins }
 
         var ids = online.filter { active.contains($0) || disabled[$0] != nil }
@@ -174,8 +171,8 @@ final class DisplayManager {
                 continue
             }
             display.isEnabled = active.contains(id)
+            display.isBuiltin = DisplayPolicy.isBuiltin(answer: CGDisplayIsBuiltin(id), id: id, builtins: builtins)
             if display.isEnabled {
-                display.isBuiltin = DisplayPolicy.isTrue(CGDisplayIsBuiltin(id))
                 display.name = Self.name(of: id)
                 if display.ddc == nil || ddc[id] == nil {
                     display.ddc = ddc[id]
@@ -183,7 +180,6 @@ final class DisplayManager {
                     display.volume = nil
                 }
             } else {
-                display.isBuiltin = display.isBuiltin || builtins.contains(id)
                 display.ddc = nil
             }
             next.append(display)
