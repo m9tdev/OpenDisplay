@@ -107,14 +107,13 @@ private extension DisplayState {
     }
 }
 
-/// Display states built from vendor and model numbers: the stand-in display of macOS ("unkn"/"virt") is the only display
-/// on, and the built-in display is off, with vendor and model 0xFFFFFFFF.
+/// Display states built with the vendor and model initializer, while the built-in display is off.
 final class StandInDisplayTests: XCTestCase {
     /// The built-in display as macOS reports it while it is off: offline, with vendor and model 0xFFFFFFFF.
     let builtinOff = DisplayState(id: 1, isBuiltin: true, isOnline: false, isActive: false, vendor: 0xFFFF_FFFF,
                                   model: 0xFFFF_FFFF, isDisabledByUs: true)
 
-    func testTheBuiltinDisplayTurnsOnAgainWithTheKnownPlaceholder() {
+    func testTheBuiltinDisplayTurnsOnAgainWhileOnlyTheStandInIsOn() {
         let standIn = DisplayState(id: 7, isBuiltin: false, isOnline: true, isActive: true, vendor: 0x756E_6B6E,
                                    model: 0x7669_7274, isDisabledByUs: false)
         XCTAssertEqual(DisplayPolicy.displaysToRestore(in: [standIn, builtinOff]), [1])
