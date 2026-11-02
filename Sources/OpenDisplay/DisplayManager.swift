@@ -634,7 +634,9 @@ final class DisplayManager {
     }
 
     @ObservationIgnored private var isRestoring = false
-    /// Tries after a failed attempt to turn a display on again, before the next display change.
+    /// Tries after a failed attempt to turn a display on again, before the next display change. The limit is per chain:
+    /// each refresh starts a new chain at 0, so if a failed attempt makes macOS post a display change, the attempts go
+    /// on every 3 to 5 seconds while no display is on.
     private static let restoreRetries = 3
 
     /// When the last physical display that is on goes away (for example, the TV is unplugged while OpenDisplay has
