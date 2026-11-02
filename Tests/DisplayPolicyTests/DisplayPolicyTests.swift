@@ -220,3 +220,29 @@ final class BuiltinMemoryTests: XCTestCase {
         XCTAssertFalse(DisplayPolicy.isBuiltin(answer: -1, id: 2, builtins: [1]))
     }
 }
+
+/// Which failures to turn a display on again show an error and are tried again.
+final class RestoreFailureTests: XCTestCase {
+    let standIn = DisplayState(id: 13, isVirtual: true)
+
+    func testAFailureForTheBuiltinDisplayIsReported() {
+        // Off, macOS does not know it, but it is remembered as built-in.
+        let builtin = DisplayState(id: 1, isBuiltin: true, isOnline: false, isActive: false, isDisabledByUs: true)
+        XCTAssertTrue(DisplayPolicy.reportsRestoreFailure(of: 1, in: [standIn, builtin]))
+    }
+
+    func testAFailureForAnOnlineDisplayIsReported() {
+        let monitor = DisplayState(id: 2, isOnline: true, isActive: false, isDisabledByUs: true)
+        XCTAssertTrue(DisplayPolicy.reportsRestoreFailure(of: 2, in: [standIn, monitor]))
+    }
+
+    func testAFailureForAnOfflineDisplayThatIsNotBuiltinIsQuiet() {
+        // For example a monitor that was turned off and then unplugged: its ID is stale.
+        let unplugged = DisplayState(id: 4, isOnline: false, isActive: false, isDisabledByUs: true)
+        XCTAssertFalse(DisplayPolicy.reportsRestoreFailure(of: 4, in: [standIn, unplugged]))
+    }
+
+    func testAFailureForAnUnknownDisplayIsQuiet() {
+        XCTAssertFalse(DisplayPolicy.reportsRestoreFailure(of: 9, in: [standIn]))
+    }
+}
