@@ -75,6 +75,14 @@ final class PresetPolicyTests: XCTestCase {
         XCTAssertNil(DisplayKey.key(reported: nil, remembered: nil))
     }
 
+    func testADisplayThatIsOffKeepsItsKeyWhenMacOSReportsAnotherOne() {
+        // While the external display 3 is on, its key is remembered.
+        let keys = DisplayKey.remembered([:], reported: [3: externalKey], keeping: [])
+        // It is turned off, and macOS reports its vendor and model, but not its serial number.
+        let reported = DisplayKey.key(vendor: 2513, model: 32859, serial: .max)
+        XCTAssertEqual(DisplayKey.key(reported: reported, remembered: keys[3]), externalKey)
+    }
+
     func testARememberedKeyFollowsTheDisplayThatHasTheID() {
         var keys = DisplayKey.remembered([:], reported: [3: externalKey], keeping: [])
         // A report without a key keeps the remembered one.
