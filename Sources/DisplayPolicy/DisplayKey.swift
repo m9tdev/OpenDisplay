@@ -32,4 +32,11 @@ public enum DisplayKey {
         }
         return keys
     }
+
+    /// The keys that per-display settings are saved by (brightness sync, expanded menu rows, software dimming), by
+    /// display ID. `known`: the key of each display (see `key(reported:remembered:)`); `previous`: what this returned
+    /// last time, saved across app restarts.
+    public static func settingsKeys(_ known: [UInt32: String], previous: [UInt32: String]) -> [UInt32: String] {
+        known
+    }
 }
