@@ -87,6 +87,18 @@ public struct CalibrationBuiltinWatch: Equatable, Sendable {
         setsAgain += 1
         return level
     }
+
+    /// When to read the built-in brightness once and pass it to `settled(_:at:)`, or nil if no check is due. Fast
+    /// key presses can use up the sets again, so after they stop, this check puts the level back.
+    public var settleCheckTime: Double? {
+        nil
+    }
+
+    /// The built-in brightness `value`, read once at `settleCheckTime` or later. Returns the level to set again, or
+    /// nil.
+    public mutating func settled(_ value: Float, at time: Double) -> Float? {
+        nil
+    }
 }
 
 /// What the calibration changed, saved while it runs. If the app ends without a chance to put it back (a crash),

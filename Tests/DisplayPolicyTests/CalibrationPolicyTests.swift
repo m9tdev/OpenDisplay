@@ -106,7 +106,7 @@ final class CalibrationPolicyTests: XCTestCase {
             let time = Double(press) * 2
             XCTAssertEqual(watch.reported(0.01 + 1.0 / 16, at: time), 0.01, "key press \(press + 1)")
             // macOS reports the set again with a rounded value, which is set again once.
-            _ = watch.reported(0.03, at: time + 0.05)
+            XCTAssertEqual(watch.reported(0.03, at: time + 0.05), 0.01)
             XCTAssertEqual(watch.reported(0.03, at: time + 0.1), nil)
         }
     }
@@ -116,6 +116,116 @@ final class CalibrationPolicyTests: XCTestCase {
         watch.calibrationSet(0.4)
         XCTAssertEqual(watch.reported(0.4 + 1.0 / 16, at: 0), 0.4)
         XCTAssertEqual(watch.reported(0.4 + 1.0 / 16, at: 2), 0.4)
+    }
+
+    func testTheSameKeyAgainSoonIsUndoneIfMacOSDidNotReportTheSetAgain() {
+        var watch = CalibrationBuiltinWatch()
+        watch.calibrationSet(0.4)
+        XCTAssertEqual(watch.reported(0.4 + 1.0 / 16, at: 0), 0.4)
+        // No report of the set again; the same key again, half a second later.
+        XCTAssertEqual(watch.reported(0.4 + 1.0 / 16, at: 0.5), 0.4)
+    }
+
+    /// A held key, or quick presses: 20 reports in a second, each one step further, and no reports of the sets again.
+    func holdKey(_ watch: inout CalibrationBuiltinWatch, from start: Float, at time: Double) -> Float {
+        var value = start
+        for step in 0..<20 {
+            value = min(start + Float(step + 1) / 16, 1)
+            _ = watch.reported(value, at: time + Double(step) * 0.05)
+        }
+        return value
+    }
+
+    func testAHeldKeyEndsBackOnTheLevel() throws {
+        var watch = CalibrationBuiltinWatch()
+        watch.calibrationSet(0.4)
+        let last = holdKey(&watch, from: 0.4, at: 0)
+        XCTAssertEqual(last, 1)
+        let check = try XCTUnwrap(watch.settleCheckTime)
+        XCTAssertGreaterThan(check, 0.95)
+        XCTAssertEqual(watch.settled(last, at: check + 0.1), 0.4)
+    }
+
+    func testNoSettleCheckBeforeTheReportsStop() {
+        var watch = CalibrationBuiltinWatch()
+        watch.calibrationSet(0.4)
+        XCTAssertNil(watch.settleCheckTime)
+        XCTAssertEqual(watch.reported(0.5, at: 0), 0.4)
+        XCTAssertEqual(watch.settleCheckTime, CalibrationBuiltinWatch.quietTime)
+        // Too early: a report could still come.
+        XCTAssertNil(watch.settled(0.5, at: 0.5))
+    }
+
+    func testASettleCheckOnTheLevelSetsNothing() {
+        var watch = CalibrationBuiltinWatch()
+        watch.calibrationSet(0.4)
+        XCTAssertEqual(watch.reported(0.5, at: 0), 0.4)
+        XCTAssertNil(watch.settled(0.4, at: 1.1))
+        XCTAssertNil(watch.settleCheckTime)
+    }
+
+    func testASettleCheckSetsTheValueMacOSMakesOfTheLevelOnlyOnce() {
+        // macOS clamps the level to 0.03: setting it again does not change that.
+        var watch = CalibrationBuiltinWatch()
+        watch.calibrationSet(0.01)
+        XCTAssertEqual(watch.reported(0.03, at: 0), 0.01)
+        XCTAssertEqual(watch.reported(0.03, at: 0.05), nil)
+        XCTAssertEqual(watch.settled(0.03, at: 1.2), 0.01)
+        XCTAssertEqual(watch.reported(0.03, at: 1.25), nil)
+        XCTAssertNil(watch.settled(0.03, at: 2.4))
+    }
+
+    func testASecondPressRightAfterTheFirstEndsBackOnTheLevel() {
+        // macOS does not report the set again, so the second press gives the same value right after it.
+        var watch = CalibrationBuiltinWatch()
+        watch.calibrationSet(0.4)
+        XCTAssertEqual(watch.reported(0.4 + 1.0 / 16, at: 0), 0.4)
+        _ = watch.reported(0.4 + 1.0 / 16, at: 0.1)
+        XCTAssertEqual(watch.settled(0.4 + 1.0 / 16, at: 1.2), 0.4)
+    }
+
+    func testSetsAgainStopWhenMacOSNeverShowsTheLevel() {
+        // A key press, then after each set again macOS reports and shows another value away from the level (0.5 and
+        // 0.6 in turn), never the level. The app reads the brightness at each settle check that is due.
+        var watch = CalibrationBuiltinWatch()
+        watch.calibrationSet(0.4)
+        var time = 0.0
+        var shown: Float = 0.5
+        var report: Float? = 0.5
+        var sets = 0
+        func setAgain() {
+            sets += 1
+            shown = shown == 0.5 ? 0.6 : 0.5
+            report = shown
+            time += 0.05
+        }
+        for _ in 0..<10_000 {
+            if let value = report {
+                report = nil
+                if watch.reported(value, at: time) != nil { setAgain() }
+            } else if let check = watch.settleCheckTime {
+                time = check + 0.1
+                if watch.settled(shown, at: time) != nil { setAgain() }
+            } else {
+                break
+            }
+        }
+        XCTAssertNil(report)
+        XCTAssertNil(watch.settleCheckTime)
+        XCTAssertLessThanOrEqual(sets, 2 * CalibrationBuiltinWatch.maximumSetsAgain)
+    }
+
+    func testHeldKeysAgainAndAgainEndBackOnTheLevel() {
+        var watch = CalibrationBuiltinWatch()
+        watch.calibrationSet(0.4)
+        for hold in 0..<20 {
+            let time = Double(hold) * 3
+            let last = holdKey(&watch, from: 0.4, at: time)
+            XCTAssertEqual(watch.settled(last, at: time + 2.1), 0.4, "hold \(hold + 1)")
+            // macOS reports the level.
+            XCTAssertNil(watch.reported(0.4, at: time + 2.15))
+            XCTAssertNil(watch.settled(0.4, at: time + 2.2))
+        }
     }
 
     func testReportsThatNeverSettleStopAlsoOverTime() {
