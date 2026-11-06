@@ -44,11 +44,17 @@ public struct CalibrationBuiltinWatch: Equatable, Sendable {
     public private(set) var level: Float?
     /// The reported value of the last set again, until macOS reports the level.
     private var answered: Float?
-    /// Sets again since the calibration set `level`.
+    /// Sets again since the calibration set `level`, or since reports away from it stopped for `quietTime`.
     private var setsAgain = 0
+    /// When macOS last reported a value away from `level`.
+    private var lastAway: Double?
 
-    /// The most sets again after one level set by the calibration.
+    /// The most sets again in a row: after one level set by the calibration, or while reports away from it keep
+    /// coming with less than `quietTime` between them.
     public static let maximumSetsAgain = 8
+    /// Reports away from the level that come after this pause (seconds) are a new change, such as another key press,
+    /// not a report of a set again.
+    public static let quietTime = 1.0
 
     public init() {}
 
@@ -57,6 +63,7 @@ public struct CalibrationBuiltinWatch: Equatable, Sendable {
         self.level = level
         answered = nil
         setsAgain = 0
+        lastAway = nil
     }
 
     /// macOS reports the built-in brightness `value`. Returns the level to set again, or nil.
@@ -66,6 +73,13 @@ public struct CalibrationBuiltinWatch: Equatable, Sendable {
             answered = nil
             return nil
         }
+        // Not a report that answers a set again: start over. A report of the level does not start over, because
+        // in a loop such reports can come between the others.
+        if let lastAway, time - lastAway > Self.quietTime {
+            answered = nil
+            setsAgain = 0
+        }
+        lastAway = time
         // The same value again right after a set again: macOS rounds or clamps the level, so it stays.
         if let answered, abs(value - answered) < CalibrationPolicy.builtinTolerance { return nil }
         guard setsAgain < Self.maximumSetsAgain else { return nil }
