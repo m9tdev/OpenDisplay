@@ -167,7 +167,7 @@ final class DisplayManager {
 
         let ddc = DDCDiscovery.services(for: ids.filter { active.contains($0) })
 
-        let wasEnabled = byID.mapValues(\.isEnabled)
+        let before = byID.values.map { reconnectSnapshot($0) }
         var next: [Display] = []
         for id in ids {
             let display = byID[id] ?? Display(id: id, name: disabled[id] ?? Self.name(of: id))
@@ -190,21 +190,17 @@ final class DisplayManager {
             }
             next.append(display)
         }
-        let kept = Set(next.map(\.id))
-        for display in byID.values where !kept.contains(display.id) {
-            reconnects.displayLeft(key: display.stableKeyWhenOn, dimming: display.dimming)
-        }
-        for display in next where display.isEnabled && wasEnabled[display.id] == nil {
-            // A new display object, so its dimming starts at 1; it gets back what it had when it went away.
-            display.dimming = reconnects.displayReturned(key: display.stableKey)
+        // A display that went away and came back is a new display object, so its dimming starts at 1: it gets back
+        // what it had when it went away.
+        let plan = reconnects.refresh(before: before, after: next.map { reconnectSnapshot($0) }, turnedOnByApp: [])
+        for display in next {
+            if let dimming = plan.dimming[display.id] { display.dimming = dimming }
         }
         byID = Dictionary(uniqueKeysWithValues: next.map { ($0.id, $0) })
         displays = next.sorted { ($0.isBuiltin ? 1 : 0, $0.id) < ($1.isBuiltin ? 1 : 0, $1.id) }
         // After the DDC check: a display with DDC and one without use different calibrations.
         updateCurves()
-        if ReconnectMemory.resyncsBrightness(displays.map {
-            .init(wasEnabled: wasEnabled[$0.id], isEnabled: $0.isEnabled, isSynced: $0.isEnabled && isSynced($0))
-        }) {
+        if plan.resyncsBrightness {
             // `syncFromBuiltin` below applies the shared brightness only when the built-in brightness changed.
             lastBuiltinBacklight = nil
         }
@@ -227,6 +223,14 @@ final class DisplayManager {
         XDRBoost.shared.displaysChanged()
         revision += 1
         keepADisplayOn()
+    }
+
+    /// A display for `ReconnectMemory`.
+    private func reconnectSnapshot(_ display: Display) -> ReconnectMemory.Snapshot {
+        ReconnectMemory.Snapshot(id: display.id, key: display.stableKeyWhenOn, isEnabled: display.isEnabled,
+                                 dimming: display.dimming,
+                                 // From the key it had when on: macOS has no identity for a display that went away.
+                                 isSynced: !display.isBuiltin && (display.stableKeyWhenOn.map { syncedKeys.contains($0) } ?? false))
     }
 
     // MARK: Brightness

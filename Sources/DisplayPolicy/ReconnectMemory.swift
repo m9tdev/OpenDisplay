@@ -8,38 +8,67 @@ public struct ReconnectMemory: Equatable, Sendable {
 
     public init() {}
 
-    /// A display went away. `key` identifies it across reconnects (taken while it was on; nil if it never was), and
-    /// `dimming` is its software dimming (1 is the normal image).
-    public mutating func displayLeft(key: String?, dimming: Double) {
-        guard let key else { return }
-        self.dimming[key] = dimming < 1 ? dimming : nil
-    }
+    /// The lowest software dimming that a display gets back when it turns on. A display dimmed to black, or almost,
+    /// would look dead.
+    public static let minimumRestoredDimming = 0.05
 
-    /// The software dimming for a display that returns as a new display object: what it had when it went away, or 1.
-    /// Given once: from then on, the display object holds it.
-    public mutating func displayReturned(key: String) -> Double {
-        dimming.removeValue(forKey: key) ?? 1
-    }
-
-    /// A display after a refresh, for `resyncsBrightness`.
-    public struct RefreshedDisplay: Equatable, Sendable {
-        /// Before the refresh: nil if it was not in the list (new, or it went away and came back).
-        public var wasEnabled: Bool?
+    /// A display in the app's list, before or after a refresh.
+    public struct Snapshot: Equatable, Sendable {
+        /// `CGDirectDisplayID`.
+        public var id: UInt32
+        /// Identifies the display across reconnects, from the last time it was on. nil if it never was on.
+        public var key: String?
         public var isEnabled: Bool
+        /// Software dimming: 1 is the normal image.
+        public var dimming: Double
         /// It follows the built-in display's brightness.
         public var isSynced: Bool
 
-        public init(wasEnabled: Bool?, isEnabled: Bool, isSynced: Bool) {
-            self.wasEnabled = wasEnabled
+        public init(id: UInt32, key: String?, isEnabled: Bool, dimming: Double = 1, isSynced: Bool = false) {
+            self.id = id
+            self.key = key
             self.isEnabled = isEnabled
+            self.dimming = dimming
             self.isSynced = isSynced
         }
     }
 
-    /// True if the shared brightness must be applied again to the synced displays after a refresh: a synced display
-    /// turned on, as a new display or one that was off. Its level may have changed while it was away (for example,
-    /// another computer on another input), and the built-in brightness did not change, so nothing else syncs it.
-    public static func resyncsBrightness(_ displays: [RefreshedDisplay]) -> Bool {
-        displays.contains { $0.isSynced && $0.isEnabled && $0.wasEnabled != true }
+    /// What the app does after a refresh.
+    public struct Plan: Equatable, Sendable {
+        /// The new software dimming of displays that turned on.
+        public var dimming: [UInt32: Double]
+        /// Apply the shared brightness to the synced displays again.
+        public var resyncsBrightness: Bool
+
+        public init(dimming: [UInt32: Double] = [:], resyncsBrightness: Bool = false) {
+            self.dimming = dimming
+            self.resyncsBrightness = resyncsBrightness
+        }
+    }
+
+    /// Call on each refresh of the display list. `before`: the list before the refresh; `after`: the list after it;
+    /// `turnedOnByApp`: the displays that the app turned on since the last refresh.
+    ///
+    /// A display missing from `after` went away: its dimming is remembered. A display new in `after` gets back the
+    /// dimming it had when it went away.
+    public mutating func refresh(before: [Snapshot], after: [Snapshot], turnedOnByApp: Set<UInt32>) -> Plan {
+        let previous = Dictionary(before.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let remaining = Set(after.map(\.id))
+        for display in before where !remaining.contains(display.id) {
+            if let key = display.key {
+                dimming[key] = display.dimming < 1 ? display.dimming : nil
+            }
+        }
+        var plan = Plan()
+        for display in after where display.isEnabled {
+            let old = previous[display.id]
+            if old == nil, let key = display.key {
+                plan.dimming[display.id] = dimming.removeValue(forKey: key) ?? 1
+            }
+            if display.isSynced && old?.isEnabled != true {
+                plan.resyncsBrightness = true
+            }
+        }
+        return plan
     }
 }
