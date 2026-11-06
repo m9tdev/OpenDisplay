@@ -94,6 +94,9 @@ final class DisplayManager {
     @ObservationIgnored private var pendingRefresh: DispatchWorkItem?
     /// The software dimming of the displays that went away, for when they come back.
     @ObservationIgnored private var reconnects = ReconnectMemory()
+    /// Displays the app turned on since the last refresh. The app shows them as on before the refresh, so the refresh
+    /// cannot see the change in its lists.
+    @ObservationIgnored private var turnedOnByApp: Set<CGDirectDisplayID> = []
 
     /// Displays we turned off, with their names. Kept so they stay in the list (and survive an app restart).
     @ObservationIgnored var disabled: [CGDirectDisplayID: String] {
@@ -192,7 +195,9 @@ final class DisplayManager {
         }
         // A display that went away and came back is a new display object, so its dimming starts at 1: it gets back
         // what it had when it went away.
-        let plan = reconnects.refresh(before: before, after: next.map { reconnectSnapshot($0) }, turnedOnByApp: [])
+        let plan = reconnects.refresh(before: before, after: next.map { reconnectSnapshot($0) },
+                                      turnedOnByApp: turnedOnByApp)
+        turnedOnByApp = []
         for display in next {
             if let dimming = plan.dimming[display.id] { display.dimming = dimming }
         }
@@ -592,6 +597,7 @@ final class DisplayManager {
                     var disabled = self.disabled
                     disabled[id] = enabled ? nil : name
                     self.disabled = disabled
+                    if enabled { self.turnedOnByApp.insert(id) }
                     self.scheduleRefresh()
                 }
             }
@@ -730,6 +736,7 @@ final class DisplayManager {
                     disabled[restored] = nil
                     self.disabled = disabled
                     self.byID[restored]?.isEnabled = true
+                    self.turnedOnByApp.insert(restored)
                     self.scheduleRefresh()
                 }
             }

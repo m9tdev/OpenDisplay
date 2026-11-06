@@ -51,6 +51,11 @@ public struct ReconnectMemory: Equatable, Sendable {
     ///
     /// A display missing from `after` went away: its dimming is remembered. A display new in `after` gets back the
     /// dimming it had when it went away.
+    ///
+    /// The shared brightness is applied again when a synced display turned on: new in the list, off before the
+    /// refresh, or turned on by the app. The app marks a display as on as soon as it turns it on, so the lists alone do
+    /// not show that change. The display's level may have changed while it was away or off (for example, another
+    /// computer on another input), and the built-in brightness did not change, so nothing else syncs it.
     public mutating func refresh(before: [Snapshot], after: [Snapshot], turnedOnByApp: Set<UInt32>) -> Plan {
         let previous = Dictionary(before.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let remaining = Set(after.map(\.id))
@@ -65,7 +70,7 @@ public struct ReconnectMemory: Equatable, Sendable {
             if old == nil, let key = display.key {
                 plan.dimming[display.id] = dimming.removeValue(forKey: key) ?? 1
             }
-            if display.isSynced && old?.isEnabled != true {
+            if display.isSynced && (old?.isEnabled != true || turnedOnByApp.contains(display.id)) {
                 plan.resyncsBrightness = true
             }
         }
