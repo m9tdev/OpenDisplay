@@ -37,6 +37,40 @@ final class DDCValueTests: XCTestCase {
         XCTAssertEqual(value.finish(read, current: 80, maximum: 100).answer, .show(current: 80, level: 0.8))
     }
 
+    func testAFailedReadSentBeforeAWriteStillReportsTheFailure() {
+        // A monitor that never answers reads still shows that it does not, also when brightness sync set it first.
+        var value = DDCValue()
+        let read = value.startRead()
+        _ = value.set(0.8)
+        XCTAssertEqual(value.finish(read, current: nil, maximum: nil).answer, .outdated(failed: true))
+    }
+
+    func testAnAnsweredReadSentBeforeAWriteIsNotAFailure() {
+        var value = DDCValue()
+        let read = value.startRead()
+        _ = value.set(0.8)
+        XCTAssertEqual(value.finish(read, current: 30, maximum: 100).answer, .outdated(failed: false))
+    }
+
+    func testAHeldBackWriteOutdatesAReadSentBeforeItGoesOut() {
+        // The write waits for the first read; a second read goes out meanwhile, before the write.
+        var value = DDCValue()
+        let first = value.startRead()
+        XCTAssertNil(value.set(0.5))
+        let second = value.startRead()
+        XCTAssertEqual(value.finish(first, current: 10, maximum: 50).write, 25)
+        XCTAssertFalse(shows(value.finish(second, current: 10, maximum: 50).answer))
+    }
+
+    func testAReadSentAfterAHeldBackWriteWentOutIsShown() {
+        var value = DDCValue()
+        let first = value.startRead()
+        _ = value.set(0.5)
+        _ = value.finish(first, current: 10, maximum: 50)
+        let second = value.startRead()
+        XCTAssertEqual(value.finish(second, current: 25, maximum: 50).answer, .show(current: 25, level: 0.5))
+    }
+
     func testAReadWithoutWritesIsShown() {
         var value = DDCValue()
         let read = value.startRead()
@@ -76,6 +110,34 @@ final class DDCValueTests: XCTestCase {
         let second = value.set(0.5)
         let later = value.finish(read, current: 10, maximum: 50).write
         XCTAssertEqual([second, later].compactMap { $0 }, [25])
+    }
+
+    // MARK: Writes the app does not show (the calibration's)
+
+    func testACalibrationWriteDuringTheFirstReadUsesTheMonitorsMaximum() {
+        var value = DDCValue()
+        let read = value.startRead()
+        let now = value.set(0.5, outdatesReads: false)
+        let later = value.finish(read, current: 10, maximum: 50).write
+        XCTAssertEqual([now, later].compactMap { $0 }, [25])
+    }
+
+    func testACalibrationWriteLeavesTheReadInFlightShown() {
+        // The read answers with the level from before the calibration, which the calibration puts back when it ends.
+        var value = DDCValue()
+        let read = value.startRead()
+        _ = value.set(0.5, outdatesReads: false)
+        XCTAssertEqual(value.finish(read, current: 10, maximum: 50).answer, .show(current: 10, level: 0.2))
+    }
+
+    func testACalibrationWriteAfterTheAppsWriteKeepsTheReadOutdated() {
+        var value = DDCValue()
+        let read = value.startRead()
+        _ = value.set(0.8)
+        _ = value.set(0.5, outdatesReads: false)
+        let (answer, write) = value.finish(read, current: 10, maximum: 50)
+        XCTAssertEqual(answer, .outdated(failed: false))
+        XCTAssertEqual(write, 25)
     }
 
     func testAWriteWithoutAReadAssumesTheUsualMaximum() {
