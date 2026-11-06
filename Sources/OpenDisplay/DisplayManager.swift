@@ -200,15 +200,17 @@ final class DisplayManager {
             builtinIDs, answers: Dictionary(uniqueKeysWithValues: active.map { ($0, CGDisplayIsBuiltin($0)) }))
         if builtins != builtinIDs { builtinIDs = builtins }
 
-        let storedKeys = displayKeys
-        let keys = DisplayKey.remembered(storedKeys, reported: Dictionary(uniqueKeysWithValues: active.map {
-            ($0, DisplayKey.key(vendor: CGDisplayVendorNumber($0), model: CGDisplayModelNumber($0), serial: CGDisplaySerialNumber($0)))
-        }), keeping: Set(online).union(disabled.keys))
-        if keys != storedKeys { displayKeys = keys }
-
         var ids = online.filter { active.contains($0) || disabled[$0] != nil }
         ids += active.filter { !ids.contains($0) }
         ids += disabled.keys.filter { !ids.contains($0) }
+        // A display that is turning off can be gone from macOS's lists before its change records it as off.
+        ids = changes.listed(ids, before: displays.map(\.id))
+
+        let storedKeys = displayKeys
+        let keys = DisplayKey.remembered(storedKeys, reported: Dictionary(uniqueKeysWithValues: active.map {
+            ($0, DisplayKey.key(vendor: CGDisplayVendorNumber($0), model: CGDisplayModelNumber($0), serial: CGDisplaySerialNumber($0)))
+        }), keeping: Set(online).union(disabled.keys).union(ids))
+        if keys != storedKeys { displayKeys = keys }
 
         let ddc = DDCDiscovery.services(for: ids.filter { active.contains($0) })
 
@@ -217,7 +219,7 @@ final class DisplayManager {
         for id in ids {
             let display = byID[id] ?? Display(id: id, name: disabled[id] ?? Self.name(of: id))
             display.rememberedKey = keys[id]
-            if changing.contains(id) {
+            if changes.isChanging(id) {
                 next.append(display)
                 continue
             }
@@ -593,8 +595,9 @@ final class DisplayManager {
 
     // MARK: On/off
 
-    /// Displays with an on/off change in progress. `refresh` must not undo their new state.
-    @ObservationIgnored private var changing: Set<CGDirectDisplayID> = []
+    /// The on/off changes in progress, by display, from the menu and from presets. `refresh` must not undo their new
+    /// state, and keeps their displays in the list. Only `setEnabled` and the preset `apply` begin and end changes.
+    @ObservationIgnored var changes = DisplayChanges()
     @ObservationIgnored let configQueue = DispatchQueue(label: "dev.m9t.OpenDisplay.display-config")
 
     /// Shows the new state immediately, then applies it after the menu animation.
@@ -622,7 +625,7 @@ final class DisplayManager {
         let name = display.name
         let builtins = builtinIDs
         display.isEnabled = enabled
-        changing.insert(id)
+        let change = changes.begin(id)
 
         configQueue.asyncAfter(deadline: .now() + 0.3) {
             if !enabled {
@@ -636,9 +639,11 @@ final class DisplayManager {
                         """)
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            self.changing.remove(id)
-                            display.isEnabled = true
-                            self.lastError = "You cannot turn off the last display that is on."
+                            // A later change of the display (a quick second click) sets the state it shows.
+                            let outcome = self.changes.end(
+                                change, error: "You cannot turn off the last display that is on.")
+                            if outcome.isLatest { display.isEnabled = true }
+                            if let error = outcome.shownError { self.lastError = error }
                             self.scheduleRefresh()
                         }
                     }
@@ -648,10 +653,19 @@ final class DisplayManager {
             let error = Self.applyEnabled(id, enabled, name: name, configure: configure)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    self.changing.remove(id)
+                    // A later change of the display (a quick second click) sets the state it shows, and its result
+                    // is the one to show. This change still records what it did: the later one may fail.
+                    let outcome = self.changes.end(change, error: error)
                     if let error {
-                        display.isEnabled = !enabled
-                        self.lastError = error
+                        if outcome.isLatest {
+                            display.isEnabled = !enabled
+                        } else {
+                            Self.log.error("""
+                                Turn \(enabled ? "on" : "off", privacy: .public) \(id, privacy: .public), \
+                                before a later change: \(error, privacy: .private)
+                                """)
+                        }
+                        if let shown = outcome.shownError { self.lastError = shown }
                         // macOS may have changed part of the setup: show what it is now.
                         self.scheduleRefresh()
                         return
@@ -737,8 +751,8 @@ final class DisplayManager {
     /// `refresh` calls this: at launch, after each change of the displays, and after wake.
     private func keepADisplayOn(retry: Int = 0) {
         guard let configure = PrivateAPI.configureDisplayEnabled else { return }
-        guard changing.isEmpty, !isRestoring else {
-            Self.log.notice("Keep a display on: skipped (changing \(self.changing.count, privacy: .public), restoring \(self.isRestoring, privacy: .public))")
+        guard changes.isEmpty, !isRestoring else {
+            Self.log.notice("Keep a display on: skipped (changing \(self.changes.count, privacy: .public), restoring \(self.isRestoring, privacy: .public))")
             return
         }
         let disabled = self.disabled
