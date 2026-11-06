@@ -233,8 +233,10 @@ final class DisplayManager {
                 display.name = Self.name(of: id)
                 display.stableKeyWhenOn = display.stableKey
                 if display.ddc == nil || ddc[id] == nil {
+                    // A display without DDC before and now keeps its slider position: its brightness is read again
+                    // below, and the read keeps the position if the display is still as it shows.
+                    if (display.ddc == nil) != (ddc[id] == nil) { display.brightness = nil }
                     display.ddc = ddc[id]
-                    display.brightness = nil
                     display.volume = nil
                 }
             } else {
@@ -271,7 +273,7 @@ final class DisplayManager {
             // A display that turned off and on again has its normal color table again.
             SoftwareDimming.set(display.dimming, for: display.id)
         }
-        for display in displays where display.isEnabled && display.brightness == nil {
+        for display in displays where display.isEnabled && (display.brightness == nil || display.ddc == nil) {
             readBrightness(display)
         }
         for display in displays where display.isEnabled && display.ddc != nil && display.volume == nil {
@@ -316,18 +318,19 @@ final class DisplayManager {
         }
         guard let ddc = display.ddc else {
             // No DDC: the slider still works, with software dimming only.
-            display.brightness = display.brightnessControl.slider(level: nil, dimming: display.dimming)
+            display.brightness = display.brightnessControl.slider(
+                readLevel: nil, dimming: display.dimming, shown: shownBrightness(display), levelStep: 0)
             return
         }
         let read = display.brightnessDDC.startRead()
-        ddc.readLater(vcp: VCP.brightness) { [weak display] result in
+        ddc.readLater(vcp: VCP.brightness) { [weak self, weak display] result in
             MainActor.assumeIsolated {
-                guard let display else { return }
+                guard let self, let display else { return }
                 let (answer, write) = display.brightnessDDC.finish(read, current: result?.current, maximum: result?.max)
                 if let write { display.ddc?.setLater(vcp: VCP.brightness, value: write) }
                 if case .show(_, let level?) = answer {
                     display.brightness = BrightnessControl.external(display.curve).slider(
-                        readLevel: level, dimming: display.dimming, shown: display.brightness,
+                        readLevel: level, dimming: display.dimming, shown: self.shownBrightness(display),
                         levelStep: 1 / Double(display.ddcMax))
                 } else if answer == .outdated {
                     // The app set the brightness after the read was sent (for example brightness sync at launch):
@@ -340,6 +343,12 @@ final class DisplayManager {
                 }
             }
         }
+    }
+
+    /// The slider position a display shows, for a read to keep (see `BrightnessControl.slider(readLevel:)`). A synced
+    /// display shows the shared brightness, also when it just came back.
+    private func shownBrightness(_ display: Display) -> Double? {
+        isSynced(display) ? sharedBrightness ?? display.brightness : display.brightness
     }
 
     func setBrightness(_ display: Display, to value: Double) {

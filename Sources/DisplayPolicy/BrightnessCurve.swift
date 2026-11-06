@@ -75,8 +75,23 @@ public enum BrightnessControl: Equatable, Sendable {
     /// The slider position after a read of the hardware `level` (nil: none), with the software `dimming`.
     /// `shown`: the position the app shows now, nil if none. `levelStep`: the smallest change of level the hardware
     /// reports.
+    ///
+    /// If the hardware is as `shown` sets it, the slider stays at `shown`: several positions can give the same
+    /// hardware state (a synced display at its maximum, or a level the monitor rounds to its own steps), and the
+    /// inverse would move the slider to one of them.
     public func slider(readLevel level: Double?, dimming: Double, shown: Double?, levelStep: Double) -> Double {
-        slider(level: level, dimming: dimming)
+        if let shown {
+            let expected = split(shown)
+            let sameLevel: Bool
+            switch (expected.level, level) {
+            case (nil, nil): sameLevel = true
+            // The monitor stores a written level rounded to its steps: at most half a step away.
+            case let (wrote?, read?): sameLevel = abs(wrote - read) <= levelStep / 2 + 1e-9
+            default: sameLevel = false
+            }
+            if sameLevel && abs(expected.dimming - dimming) <= 1e-9 { return shown }
+        }
+        return slider(level: level, dimming: dimming)
     }
 }
 
