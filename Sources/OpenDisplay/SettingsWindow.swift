@@ -53,7 +53,8 @@ private struct SettingsView: View {
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var checksForUpdates = Updates.shared.automaticallyChecks
     @State private var newPresetName = ""
-    @State private var error: String?
+    /// The Launch at Login error. It goes when the login item is fixed in System Settings.
+    @State private var loginItemMessage = LoginItemMessage()
     /// The result of the last Apply or the reason it changed nothing, shown under the presets.
     @State private var applyMessage = PresetPolicy.ApplyMessage()
 
@@ -81,7 +82,7 @@ private struct SettingsView: View {
                     }
                     .foregroundStyle(.secondary)
                 }
-                if let error {
+                if let error = loginItemMessage.text {
                     Text(error).foregroundStyle(.red)
                 }
             }
@@ -147,7 +148,14 @@ private struct SettingsView: View {
         }
         .onReceive(recheck) { _ in
             hasPermission = KeyboardControl.hasPermission
-            launchAtLogin = SMAppService.mainApp.status == .enabled
+            recheckLoginItem()
+        }
+        // Also check at once when Settings is shown, and when the user comes back from System Settings.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
+            if let window = notification.object as? NSWindow, window === SettingsWindow.window { recheckLoginItem() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            recheckLoginItem()
         }
     }
 
@@ -241,10 +249,16 @@ private struct SettingsView: View {
             } else {
                 try SMAppService.mainApp.unregister()
             }
-            error = nil
+            loginItemMessage.succeeded()
         } catch {
-            self.error = "Launch at Login: \(error.localizedDescription)"
+            loginItemMessage.failed(wanted: enabled, message: "Launch at Login: \(error.localizedDescription)")
         }
         launchAtLogin = SMAppService.mainApp.status == .enabled
+    }
+
+    /// The login item can change in System Settings: show its status, and drop the error once it is as wanted.
+    private func recheckLoginItem() {
+        launchAtLogin = SMAppService.mainApp.status == .enabled
+        loginItemMessage.checked(isEnabled: launchAtLogin)
     }
 }
