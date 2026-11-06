@@ -3,26 +3,6 @@ import CoreGraphics
 import DisplayPolicy
 import Observation
 
-/// A saved display setup, for example "Desk" or "Laptop only".
-struct Preset: Codable, Equatable {
-    struct DisplayState: Codable, Equatable {
-        /// `Display.stableKey`.
-        var key: String
-        var name: String
-        var isEnabled: Bool
-        var isMain: Bool
-        var width: Int
-        var height: Int
-        var pixelWidth: Int
-        var refreshRate: Double
-        var rotation: Int
-        var brightness: Double?
-    }
-
-    var name: String
-    var displays: [DisplayState]
-}
-
 @MainActor
 @Observable
 final class PresetStore {
@@ -47,46 +27,36 @@ final class PresetStore {
 }
 
 extension DisplayManager {
-    /// The current setup of all known displays. A display that is off keeps the mode it had when it was on.
-    func currentPreset(named name: String) -> Preset {
-        let old = PresetStore.shared.presets.flatMap(\.displays)
-        return Preset(name: name, displays: displays.compactMap { display in
-            guard display.isEnabled, let mode = DisplayModes.current(display.id) else {
-                // Off: use the last saved mode of this display, so turning it on again restores it.
-                guard var state = old.last(where: { $0.key == display.stableKey }) else { return nil }
-                state.isEnabled = false
-                state.isMain = false
-                return state
-            }
-            return .init(
-                key: display.stableKey, name: display.name, isEnabled: true, isMain: DisplayArrangement.isMain(display.id),
-                width: mode.width, height: mode.height, pixelWidth: mode.pixelWidth, refreshRate: mode.refreshRate,
-                rotation: DisplayArrangement.rotation(display.id), brightness: display.brightness
+    /// The displays as `PresetPolicy` needs them. Mode, main display and rotation are read only for a display that
+    /// is on: macOS does not report them for a display that is off.
+    private var presetDisplays: [PresetPolicy.Display] {
+        displays.map { display in
+            let on = display.isEnabled
+            return PresetPolicy.Display(
+                id: display.id, key: display.stableKey, name: display.name, isEnabled: on,
+                mode: on ? DisplayModes.current(display.id).map {
+                    .init(width: $0.width, height: $0.height, pixelWidth: $0.pixelWidth, refreshRate: $0.refreshRate)
+                } : nil,
+                isMain: on && DisplayArrangement.isMain(display.id), rotation: on ? DisplayArrangement.rotation(display.id) : 0,
+                brightness: display.brightness
             )
-        })
+        }
+    }
+
+    /// The current setup of all known displays.
+    func currentPreset(named name: String) -> Preset {
+        PresetPolicy.current(named: name, displays: presetDisplays, saved: PresetStore.shared.presets)
     }
 
     /// True when the displays match the preset now. Brightness and names do not count.
     func matches(_ preset: Preset) -> Bool {
-        let current = currentPreset(named: "")
-        return preset.displays.allSatisfy { state in
-            current.displays.contains { now in
-                var a = now, b = state
-                a.name = ""; b.name = ""; a.brightness = nil; b.brightness = nil
-                return a == b
-            }
-        }
+        PresetPolicy.matches(preset, displays: presetDisplays, saved: PresetStore.shared.presets)
     }
 
     /// Applies a preset. Displays that are not in the preset stay as they are.
     func apply(_ preset: Preset) {
         guard let configure = PrivateAPI.configureDisplayEnabled else { return }
-        var targets: [(id: CGDirectDisplayID, state: Preset.DisplayState)] = []
-        for state in preset.displays {
-            if let display = displays.first(where: { $0.stableKey == state.key }) {
-                targets.append((display.id, state))
-            }
-        }
+        let targets = PresetPolicy.targets(of: preset, displays: presetDisplays)
         guard targets.contains(where: { $0.state.isEnabled }) else {
             lastError = "This preset turns off all displays."
             return

@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import DisplayPolicy
 import ServiceManagement
 import SwiftUI
 
