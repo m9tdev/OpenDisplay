@@ -67,8 +67,8 @@ final class Display: Identifiable {
         DisplayKey.key(vendor: CGDisplayVendorNumber(id), model: CGDisplayModelNumber(id), serial: CGDisplaySerialNumber(id))
     }
 
-    /// Identifies the display across reconnects and restarts (the display ID can change), or `nil` while macOS does not
-    /// know the display and it has no remembered key.
+    /// Identifies the display across reconnects and restarts (the display ID can change): the remembered key, else the
+    /// key macOS reports, or `nil` when there is neither (see `DisplayKey`).
     var knownKey: String? {
         DisplayKey.key(reported: reportedKey, remembered: rememberedKey)
     }
@@ -191,10 +191,11 @@ final class DisplayManager {
             builtinIDs, answers: Dictionary(uniqueKeysWithValues: active.map { ($0, CGDisplayIsBuiltin($0)) }))
         if builtins != builtinIDs { builtinIDs = builtins }
 
-        let keys = DisplayKey.remembered(displayKeys, reported: Dictionary(uniqueKeysWithValues: active.map {
+        let storedKeys = displayKeys
+        let keys = DisplayKey.remembered(storedKeys, reported: Dictionary(uniqueKeysWithValues: active.map {
             ($0, DisplayKey.key(vendor: CGDisplayVendorNumber($0), model: CGDisplayModelNumber($0), serial: CGDisplaySerialNumber($0)))
         }), keeping: Set(online).union(disabled.keys))
-        if keys != displayKeys { displayKeys = keys }
+        if keys != storedKeys { displayKeys = keys }
 
         var ids = online.filter { active.contains($0) || disabled[$0] != nil }
         ids += active.filter { !ids.contains($0) }

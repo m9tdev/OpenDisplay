@@ -129,8 +129,8 @@ public enum PresetPolicy {
 
     /// The displays a preset changes, with their states, in the order of the preset. Each display gets at most one
     /// entry: an entry goes to the display it was saved from if that display still has the same ID and key, else to
-    /// the first other display with its key. Two displays with the same key (the same model, without a serial number)
-    /// so each get their own entry. Entries without a display are left out.
+    /// the first other display with its key. So two displays with the same key (the same model, without a serial
+    /// number) each get their own entry. Entries without a display are left out.
     public static func targets(of preset: Preset, displays: [Display]) -> [(id: UInt32, state: Preset.DisplayState)] {
         var chosen: [Int: UInt32] = [:]
         var used: Set<UInt32> = []
