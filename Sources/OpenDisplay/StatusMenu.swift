@@ -148,17 +148,19 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         return !neededRows().isSubset(of: builtRows)
     }
 
-    private func reopenIfWanted() {
+    /// - Parameter isRetry: The check that a `checkAgainLater` asked for.
+    private func reopenIfWanted(isRetry: Bool = false) {
         let isOpen = MenuState.isOpen
         // A pressed button means the user is in the middle of something in the menu, such as a slider drag.
         let action = reopen.check(at: Self.now, isOpen: isOpen,
                                   isOutdated: isOpen && (rowsMissing() || iconScreen() != menuScreen),
-                                  closedByUser: closedByUser, mouseIsDown: NSEvent.pressedMouseButtons != 0)
+                                  closedByUser: closedByUser, mouseIsDown: NSEvent.pressedMouseButtons != 0,
+                                  isRetry: isRetry)
         switch action {
         case .nothing:
             return
         case .checkAgainLater:
-            after(0.5) { $0.reopenIfWanted() }
+            after(0.5) { $0.reopenIfWanted(isRetry: true) }
         case .closeAndOpen:
             closingForReopen = true
             menu.cancelTracking()

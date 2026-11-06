@@ -21,6 +21,9 @@ public struct MenuReopen: Equatable, Sendable {
 
     /// When the wish to reopen came, `nil` for none.
     public private(set) var wantedSince: Double?
+    /// A `checkAgainLater` is pending: its retry will come. Other checks during the drag then ask for none, so only
+    /// one check at a time keeps coming back.
+    private var retryPending = false
 
     public init() {}
 
@@ -40,16 +43,19 @@ public struct MenuReopen: Equatable, Sendable {
     ///   - isRetry: This check is the one a `checkAgainLater` asked for.
     public mutating func check(at time: Double, isOpen: Bool, isOutdated: Bool, closedByUser: Bool,
                                mouseIsDown: Bool, isRetry: Bool = false) -> Action {
+        if isRetry { retryPending = false }
         guard let wantedSince else { return .nothing }
-        // Closing the menu now would end the drag, and a resolution slider applies its choice only on mouse up.
-        // So wait for the drag to end; the wish starts again then, so a long drag does not let it expire.
-        if isOpen, isOutdated, mouseIsDown {
-            self.wantedSince = time
-            return .checkAgainLater
-        }
         guard time - wantedSince < Self.lifetime else {
             self.wantedSince = nil
             return .nothing
+        }
+        // Closing the menu now would end the drag, and a resolution slider applies its choice only on mouse up.
+        // So wait for the drag to end; the wish starts again at each wait, so a long drag does not let it expire.
+        if isOpen, isOutdated, mouseIsDown {
+            self.wantedSince = time
+            guard !retryPending else { return .nothing }
+            retryPending = true
+            return .checkAgainLater
         }
         if isOpen {
             guard isOutdated else { return .nothing }
