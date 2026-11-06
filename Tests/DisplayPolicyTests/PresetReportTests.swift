@@ -58,6 +58,14 @@ final class PresetReportTests: XCTestCase {
         XCTAssertEqual(PresetPolicy.turnsOffAllDisplays(notConnected: []), "This preset turns off all displays.")
     }
 
+    func testTwoDisplaysWithTheSameNameAreNamedOnce() {
+        // Two Dells of the same model, neither connected.
+        var other = dell
+        other.isMain = false
+        let plan = PresetPolicy.plan(Preset(name: "Office", displays: [dell, other]), displays: connected)
+        XCTAssertEqual(plan.refusal, "Nothing changed: Dell is not connected.")
+    }
+
     // MARK: Part connected
 
     func testApplySkipsADisplayThatIsNotConnectedAndSaysSo() {
@@ -89,6 +97,35 @@ final class PresetReportTests: XCTestCase {
         state.width = 1920; state.height = 1080; state.pixelWidth = 3840; state.refreshRate = 59.94
         XCTAssertEqual(PresetPolicy.resolutionNotAvailable(state),
                        "Skipped the resolution of BenQ: 1920 × 1080 HiDPI at 59.94 Hz is not available.")
+    }
+
+    // MARK: Settings message
+
+    func testTheMessageOfAnApplyThatFinishesLateDoesNotReplaceTheNextOne() {
+        // Apply twice: the first run finishes after the second.
+        var message = PresetPolicy.ApplyMessage()
+        let first = message.start()
+        let second = message.start()
+        message.finish(second, message: "Skipped Dell: not connected.")
+        message.finish(first, message: "Nothing changed: Dell is not connected.")
+        XCTAssertEqual(message.text, "Skipped Dell: not connected.")
+    }
+
+    func testTheMessageOfAnApplyThatFinishesAfterTheWindowClosedIsNotShown() {
+        var message = PresetPolicy.ApplyMessage()
+        let run = message.start()
+        message.close()
+        message.finish(run, message: "Skipped Dell: not connected.")
+        XCTAssertNil(message.text, "the old message shows when Settings opens again")
+    }
+
+    func testTheMessageOfTheLastApplyIsShown() {
+        var message = PresetPolicy.ApplyMessage()
+        let run = message.start()
+        message.finish(run, message: "Skipped Dell: not connected.")
+        XCTAssertEqual(message.text, "Skipped Dell: not connected.")
+        message.clear()
+        XCTAssertNil(message.text)
     }
 
     // MARK: Report

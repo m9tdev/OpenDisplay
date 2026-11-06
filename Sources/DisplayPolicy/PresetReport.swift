@@ -55,6 +55,38 @@ extension PresetPolicy {
         messages.isEmpty ? nil : messages.joined(separator: " ")
     }
 
+    /// The message Settings shows for Apply. Apply finishes later, so its result comes in a callback: each Apply gets a
+    /// run number from `start`, and passes it to `finish`.
+    public struct ApplyMessage: Equatable, Sendable {
+        /// The message to show, `nil` for none.
+        public private(set) var text: String?
+        private var run = 0
+
+        public init() {}
+
+        /// An Apply starts: the old message goes. Returns the number of this run.
+        public mutating func start() -> Int {
+            run += 1
+            text = nil
+            return run
+        }
+
+        /// An Apply finished with `message`.
+        public mutating func finish(_ run: Int, message: String?) {
+            text = message
+        }
+
+        /// The window closed: its message goes.
+        public mutating func close() {
+            text = nil
+        }
+
+        /// Another action (Save) makes the message old.
+        public mutating func clear() {
+            text = nil
+        }
+    }
+
     /// "Dell is not connected", "Dell and LG are not connected".
     private static func isNotConnected(_ states: [Preset.DisplayState]) -> String {
         let names = states.map(\.name)

@@ -55,7 +55,7 @@ private struct SettingsView: View {
     @State private var newPresetName = ""
     @State private var error: String?
     /// The result of the last Apply or the reason it changed nothing, shown under the presets.
-    @State private var presetMessage: String?
+    @State private var applyMessage = PresetPolicy.ApplyMessage()
 
     /// The permission and the login item can change in System Settings, so check them again.
     private let recheck = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -106,8 +106,8 @@ private struct SettingsView: View {
                 ForEach(store.presets, id: \.name) { preset in
                     presetRow(preset)
                 }
-                if let presetMessage {
-                    Text(presetMessage).foregroundStyle(.red)
+                if let message = applyMessage.text {
+                    Text(message).foregroundStyle(.red)
                 }
                 HStack {
                     TextField("Name", text: $newPresetName, prompt: Text("Name, for example “Desk”"))
@@ -143,7 +143,7 @@ private struct SettingsView: View {
         .fixedSize(horizontal: false, vertical: true)
         // The window is reused: an old preset message must not show the next time it opens.
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
-            if let window = notification.object as? NSWindow, window === SettingsWindow.window { presetMessage = nil }
+            if let window = notification.object as? NSWindow, window === SettingsWindow.window { applyMessage.close() }
         }
         .onReceive(recheck) { _ in
             hasPermission = KeyboardControl.hasPermission
@@ -214,12 +214,12 @@ private struct SettingsView: View {
     }
 
     private func applyPreset(_ preset: Preset) {
-        presetMessage = nil
-        manager.apply(preset) { presetMessage = $0 }
+        let run = applyMessage.start()
+        manager.apply(preset) { applyMessage.finish(run, message: $0) }
     }
 
     private func savePreset() {
-        presetMessage = nil
+        applyMessage.clear()
         guard !trimmedName.isEmpty else { return }
         store.save(manager.currentPreset(named: trimmedName))
         newPresetName = ""
