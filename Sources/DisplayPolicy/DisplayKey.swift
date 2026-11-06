@@ -13,10 +13,12 @@ public enum DisplayKey {
     /// What macOS reports for a display ID it does not know.
     static let unknown = UInt32.max
 
-    /// The key of a display: what macOS reports, or, while macOS does not know the display (it may be off), the key
-    /// remembered from when it was on. `nil` when there is neither.
+    /// The key of a display: the key remembered from when it was last on, or, without one, what macOS reports.
+    /// `nil` when there is neither. The remembered key comes first: while a display is off, macOS may not know it, or
+    /// may report another key (for example without the serial number). For a display that is on, the two are the
+    /// same, because each refresh remembers the key macOS reports.
     public static func key(reported: String?, remembered: String?) -> String? {
-        reported ?? remembered
+        remembered ?? reported
     }
 
     /// The remembered keys, by display ID, after macOS reported `reported` for the displays that are on: a key

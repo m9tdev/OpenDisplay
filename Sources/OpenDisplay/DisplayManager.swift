@@ -67,8 +67,8 @@ final class Display: Identifiable {
         DisplayKey.key(vendor: CGDisplayVendorNumber(id), model: CGDisplayModelNumber(id), serial: CGDisplaySerialNumber(id))
     }
 
-    /// Identifies the display across reconnects and restarts (the display ID can change), or `nil` while macOS does not
-    /// know the display and it has no remembered key.
+    /// Identifies the display across reconnects and restarts (the display ID can change): the remembered key, else the
+    /// key macOS reports, or `nil` when there is neither (see `DisplayKey`).
     var knownKey: String? {
         DisplayKey.key(reported: reportedKey, remembered: rememberedKey)
     }

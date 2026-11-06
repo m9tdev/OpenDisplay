@@ -70,8 +70,8 @@ final class PresetPolicyTests: XCTestCase {
         // It is turned off. If macOS then no longer knows it, the remembered key names it.
         let reported = DisplayKey.key(vendor: .max, model: .max, serial: .max)
         XCTAssertEqual(DisplayKey.key(reported: reported, remembered: keys[3]), externalKey)
-        // A display that is on, or that macOS still knows, has the key macOS reports.
-        XCTAssertEqual(DisplayKey.key(reported: "4268-41234-77", remembered: externalKey), "4268-41234-77")
+        // A display without a remembered key has the key macOS reports.
+        XCTAssertEqual(DisplayKey.key(reported: "4268-41234-77", remembered: nil), "4268-41234-77")
         XCTAssertNil(DisplayKey.key(reported: nil, remembered: nil))
     }
 
