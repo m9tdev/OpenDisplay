@@ -50,7 +50,8 @@ public struct ReconnectMemory: Equatable, Sendable {
     /// `turnedOnByApp`: the displays that the app turned on since the last refresh.
     ///
     /// A display missing from `after` went away: its dimming is remembered. A display new in `after` gets back the
-    /// dimming it had when it went away.
+    /// dimming it had when it went away, at least `minimumRestoredDimming`; a display that turns on again keeps its
+    /// own, also at least `minimumRestoredDimming`.
     ///
     /// The shared brightness is applied again when a synced display turned on: new in the list, off before the
     /// refresh, or turned on by the app. The app marks a display as on as soon as it turns it on, so the lists alone do
@@ -67,10 +68,14 @@ public struct ReconnectMemory: Equatable, Sendable {
         var plan = Plan()
         for display in after where display.isEnabled {
             let old = previous[display.id]
+            let turnedOn = old?.isEnabled != true || turnedOnByApp.contains(display.id)
             if old == nil, let key = display.key {
-                plan.dimming[display.id] = dimming.removeValue(forKey: key) ?? 1
+                plan.dimming[display.id] = max(dimming.removeValue(forKey: key) ?? 1, Self.minimumRestoredDimming)
+            } else if turnedOn && display.dimming < Self.minimumRestoredDimming {
+                // The same display object, turned on again: it keeps its dimming, but not so low that it looks dead.
+                plan.dimming[display.id] = Self.minimumRestoredDimming
             }
-            if display.isSynced && (old?.isEnabled != true || turnedOnByApp.contains(display.id)) {
+            if display.isSynced && turnedOn {
                 plan.resyncsBrightness = true
             }
         }
