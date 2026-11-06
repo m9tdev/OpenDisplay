@@ -1,4 +1,5 @@
 import AppKit
+import DisplayPolicy
 import SwiftUI
 
 /// Calibrates the brightness of an external display by eye, against the built-in display.
@@ -43,10 +44,19 @@ final class CalibrationSession {
 
     @ObservationIgnored private var windows: [NSWindow] = []
     @ObservationIgnored private var screenObserver: NSObjectProtocol?
-    /// What to put back after the calibration.
-    @ObservationIgnored private var saved: (builtin: Double?, external: Double?, autoBrightness: Bool, trueTone: Bool, xdr: CGDirectDisplayID?)
+    /// What to put back after the calibration. Also in UserDefaults while the calibration runs (see `restoreUnfinished`).
+    @ObservationIgnored private var record: CalibrationRecord
+    /// The display with XDR boost, turned off for the calibration. The boost does not survive a relaunch, so it is
+    /// not in the record.
+    @ObservationIgnored private var xdr: CGDirectDisplayID?
+    /// The built-in level the calibration set last, to set it again if macOS changes it.
+    @ObservationIgnored private var builtinWatch = CalibrationBuiltinWatch()
+    /// The pending read of the built-in brightness after reports away from the level stop (see
+    /// `CalibrationBuiltinWatch.settleCheckTime`). Each report schedules it again; `finish` cancels it.
+    @ObservationIgnored private var settleCheck: DispatchWorkItem?
 
     private static var current: CalibrationSession?
+    private static let recordKey = "calibrationInProgress"
 
     static func start(external: Display, manager: DisplayManager) {
         guard current == nil,
@@ -62,22 +72,39 @@ final class CalibrationSession {
         usesDDC = external.ddc != nil
         steps = usesDDC ? Step.allCases : [.top, .result]
         step = steps[0]
-        saved = (builtin.brightness, external.brightness, false, false, XDRBoost.shared.displayID)
+        xdr = XDRBoost.shared.displayID
 
         // Pause what changes the built-in display while the user compares.
         var autoBrightness = false
-        if PrivateAPI.getAutoBrightness?(builtin.id, &autoBrightness) == 0, autoBrightness {
+        let autoBrightnessOn = PrivateAPI.getAutoBrightness?(builtin.id, &autoBrightness) == 0 && autoBrightness
+        let trueTone = PrivateAPI.trueToneClient()
+        let trueToneOn = trueTone?.value(forKey: "enabled") as? Bool == true
+        record = CalibrationRecord(autoBrightness: autoBrightnessOn, trueTone: trueToneOn,
+                                   builtinBrightness: builtin.brightness, externalKey: external.stableKey,
+                                   externalBrightness: external.brightness)
+            // A crash's record that the launch has not put back yet.
+            .keeping(CalibrationRecord(data: UserDefaults.standard.data(forKey: Self.recordKey)))
+        // Before the changes: if the app ends without `finish` (a crash), the next launch puts them back.
+        UserDefaults.standard.set(record.data, forKey: Self.recordKey)
+        if autoBrightnessOn {
             _ = PrivateAPI.setAutoBrightness?(builtin.id, false)
-            saved.autoBrightness = true
         }
-        if let trueTone = PrivateAPI.trueToneClient(), trueTone.value(forKey: "enabled") as? Bool == true {
-            trueTone.setValue(false, forKey: "enabled")
-            saved.trueTone = true
+        if trueToneOn {
+            trueTone?.setValue(false, forKey: "enabled")
         }
-        if let xdr = saved.xdr {
+        if let xdr {
             XDRBoost.shared.setEnabled(false, for: xdr)
         }
+        // From here, only the calibration changes the brightness (see `CalibrationPolicy`).
         manager.isCalibrating = true
+        manager.builtinChangedWhileCalibrating = { [weak self] value in
+            guard let self else { return }
+            // macOS changed it, for example with the brightness keys when the app does not catch them.
+            if let level = self.builtinWatch.reported(value, at: ProcessInfo.processInfo.systemUptime) {
+                _ = PrivateAPI.setBrightness?(self.builtin.id, level)
+            }
+            self.scheduleSettleCheck()
+        }
         // Saved with the result, because other monitor settings give other light.
         manager.readMonitorSettings(external)
         for display in [builtin, external] {
@@ -197,11 +224,33 @@ final class CalibrationSession {
         }
     }
 
+    /// Reads the built-in brightness once after the reports stop (see `CalibrationBuiltinWatch.settleCheckTime`).
+    private func scheduleSettleCheck() {
+        settleCheck?.cancel()
+        settleCheck = nil
+        guard let checkTime = builtinWatch.settleCheckTime else { return }
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, Self.current === self else { return }
+                var value: Float = 0
+                guard let get = PrivateAPI.getBrightness, get(self.builtin.id, &value) == 0,
+                      let level = self.builtinWatch.settled(value, at: ProcessInfo.processInfo.systemUptime) else { return }
+                _ = PrivateAPI.setBrightness?(self.builtin.id, level)
+            }
+        }
+        settleCheck = work
+        // A little after the time, so the check counts as after it.
+        let delay = max(checkTime - ProcessInfo.processInfo.systemUptime, 0) + 0.1
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
     /// - Parameters:
     ///   - builtin: The built-in display's slider position, on the macOS curve.
     ///   - external: The external display's DDC level, 0...1. Without DDC: its slider position for software dimming.
     private func set(builtin value: Double, external level: Double) {
-        _ = PrivateAPI.setBrightness?(builtin.id, Float(max(value, 0.01)))
+        let builtinLevel = Float(max(value, 0.01))
+        builtinWatch.calibrationSet(builtinLevel)
+        _ = PrivateAPI.setBrightness?(builtin.id, builtinLevel)
         if usesDDC {
             external.ddc?.setLater(vcp: VCP.brightness, value: UInt16((level * Double(external.ddcMax)).rounded()))
         } else {
@@ -231,21 +280,64 @@ final class CalibrationSession {
         windows.forEach { $0.close() }
         windows = []
 
+        manager.builtinChangedWhileCalibrating = nil
+        settleCheck?.cancel()
+        settleCheck = nil
         manager.isCalibrating = false
-        if saved.autoBrightness {
-            _ = PrivateAPI.setAutoBrightness?(builtin.id, true)
-        }
-        if saved.trueTone {
-            PrivateAPI.trueToneClient()?.setValue(true, forKey: "enabled")
-        }
-        if let xdr = saved.xdr {
+        if let xdr {
             XDRBoost.shared.setEnabled(true, for: xdr)
         }
+        // A first DDC read that was pending at the start has ended by now, with the level from before the
+        // calibration: the reads and the calibration's writes go to the monitor in order.
+        let restore = record.restore(external: manager.isSynced(external) ? .synced : .own(brightness: external.brightness))
+        Self.apply(restore, builtin: builtin, external: external, manager: manager)
+        UserDefaults.standard.removeObject(forKey: Self.recordKey)
+    }
+
+    /// Ends the calibration, if one runs, and puts back what it changed. For when the app quits.
+    static func finishCurrent() {
+        current?.finish()
+    }
+
+    /// Puts back what a calibration changed if the app ended during it without `finish` (a crash). Call once at launch,
+    /// after the first refresh.
+    static func restoreUnfinished(manager: DisplayManager) {
+        guard CalibrationRecord(data: UserDefaults.standard.data(forKey: recordKey)) != nil else { return }
+        // After the first DDC reads: then a brightness write uses the monitor's own maximum, and no read overwrites it.
+        // Until then the record stays, so a quit still leaves it for the next launch.
+        DispatchQueue.main.asyncAfter(deadline: .now() + DisplayManager.ddcReadyDelay) {
+            MainActor.assumeIsolated {
+                // A calibration that started meanwhile took the record over (see `CalibrationRecord.keeping`), and
+                // puts it back when it ends.
+                guard current == nil,
+                      let record = CalibrationRecord(data: UserDefaults.standard.data(forKey: recordKey)) else { return }
+                // Before the restore: if the restore itself fails, it must not run at each launch.
+                UserDefaults.standard.removeObject(forKey: recordKey)
+                let builtin = manager.displays.first { $0.isBuiltin }
+                let external = manager.displays.first { !$0.isBuiltin && $0.isEnabled && $0.stableKey == record.externalKey }
+                let state: CalibrationRecord.External = if let external {
+                    manager.isSynced(external) ? .synced : .own(brightness: nil)
+                } else {
+                    .absent
+                }
+                apply(record.restore(external: state), builtin: builtin, external: external, manager: manager)
+            }
+        }
+    }
+
+    private static func apply(_ restore: CalibrationRecord.Restore, builtin: Display?, external: Display?,
+                              manager: DisplayManager) {
+        if restore.autoBrightness, let builtin {
+            _ = PrivateAPI.setAutoBrightness?(builtin.id, true)
+        }
+        if restore.trueTone {
+            PrivateAPI.trueToneClient()?.setValue(true, forKey: "enabled")
+        }
         // The built-in display first: it also sets a synced external display.
-        if let brightness = saved.builtin {
+        if let brightness = restore.builtinBrightness, let builtin, builtin.isEnabled {
             manager.setBrightness(builtin, to: brightness)
         }
-        if let brightness = saved.external, !manager.isSynced(external) {
+        if let brightness = restore.externalBrightness, let external {
             manager.setBrightness(external, to: brightness)
         }
     }
