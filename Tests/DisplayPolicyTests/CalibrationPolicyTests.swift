@@ -215,17 +215,37 @@ final class CalibrationPolicyTests: XCTestCase {
         XCTAssertLessThanOrEqual(sets, 2 * CalibrationBuiltinWatch.maximumSetsAgain)
     }
 
-    func testHeldKeysAgainAndAgainEndBackOnTheLevel() {
+    /// Holds the key `holds` times on one level, `pause` seconds after the settle check of the hold before. Like the
+    /// app, it runs a settle check only when one is due. Returns the brightness after each hold.
+    func holdKeyAgainAndAgain(_ holds: Int, pause: Double) -> [Float] {
         var watch = CalibrationBuiltinWatch()
         watch.calibrationSet(0.4)
-        for hold in 0..<20 {
-            let time = Double(hold) * 3
-            let last = holdKey(&watch, from: 0.4, at: time)
-            XCTAssertEqual(watch.settled(last, at: time + 2.1), 0.4, "hold \(hold + 1)")
-            // macOS reports the level.
-            XCTAssertNil(watch.reported(0.4, at: time + 2.15))
-            XCTAssertNil(watch.settled(0.4, at: time + 2.2))
+        var time = 0.0
+        var results: [Float] = []
+        for _ in 0..<holds {
+            var shown = holdKey(&watch, from: 0.4, at: time)
+            time += 1
+            while let check = watch.settleCheckTime {
+                time = max(time, check + 0.1)
+                guard let level = watch.settled(shown, at: time) else { break }
+                shown = level
+                // macOS reports the level.
+                time += 0.05
+                _ = watch.reported(shown, at: time)
+            }
+            results.append(shown)
+            time += pause
         }
+        return results
+    }
+
+    func testHeldKeysAgainAndAgainEndBackOnTheLevel() {
+        XCTAssertEqual(holdKeyAgainAndAgain(20, pause: 2), Array(repeating: 0.4, count: 20))
+    }
+
+    func testHeldKeysInQuickSuccessionEndBackOnTheLevel() {
+        // The next hold starts half a second after the settle check put the level back.
+        XCTAssertEqual(holdKeyAgainAndAgain(20, pause: 0.5), Array(repeating: 0.4, count: 20))
     }
 
     func testReportsThatNeverSettleStopAlsoOverTime() {
