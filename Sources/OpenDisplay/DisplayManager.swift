@@ -186,7 +186,7 @@ final class DisplayManager {
 
         let keys = DisplayKey.remembered(displayKeys, reported: Dictionary(uniqueKeysWithValues: active.map {
             ($0, DisplayKey.key(vendor: CGDisplayVendorNumber($0), model: CGDisplayModelNumber($0), serial: CGDisplaySerialNumber($0)))
-        }))
+        }), keeping: Set(online).union(disabled.keys))
         if keys != displayKeys { displayKeys = keys }
 
         var ids = online.filter { active.contains($0) || disabled[$0] != nil }

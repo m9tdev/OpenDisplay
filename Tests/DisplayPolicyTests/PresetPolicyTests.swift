@@ -66,7 +66,7 @@ final class PresetPolicyTests: XCTestCase {
 
     func testADisplayThatIsOffKeepsTheKeyItHadWhenItWasOn() {
         // While the external display 3 is on, its key is remembered.
-        let keys = DisplayKey.remembered([:], reported: [1: builtinKey, 3: externalKey])
+        let keys = DisplayKey.remembered([:], reported: [1: builtinKey, 3: externalKey], keeping: [])
         // It is turned off. If macOS then no longer knows it, the remembered key names it.
         let reported = DisplayKey.key(vendor: .max, model: .max, serial: .max)
         XCTAssertEqual(DisplayKey.key(reported: reported, remembered: keys[3]), externalKey)
@@ -76,13 +76,24 @@ final class PresetPolicyTests: XCTestCase {
     }
 
     func testARememberedKeyFollowsTheDisplayThatHasTheID() {
-        var keys = DisplayKey.remembered([:], reported: [3: externalKey])
+        var keys = DisplayKey.remembered([:], reported: [3: externalKey], keeping: [])
         // A report without a key keeps the remembered one.
-        keys = DisplayKey.remembered(keys, reported: [3: nil])
+        keys = DisplayKey.remembered(keys, reported: [3: nil], keeping: [])
         XCTAssertEqual(keys, [3: externalKey])
         // Another display now has ID 3.
-        keys = DisplayKey.remembered(keys, reported: [3: "4268-41234-77"])
+        keys = DisplayKey.remembered(keys, reported: [3: "4268-41234-77"], keeping: [])
         XCTAssertEqual(keys, [3: "4268-41234-77"])
+    }
+
+    func testOnlyTheKeysOfListedDisplaysStayRemembered() {
+        let keys = DisplayKey.remembered([1: builtinKey, 3: externalKey, 9: "4268-41234-77"], reported: [1: builtinKey],
+                                         keeping: [3])
+        XCTAssertEqual(keys, [1: builtinKey, 3: externalKey])
+    }
+
+    func testAKnownDisplayWithoutASerialNumberReportHasAKey() {
+        // The same key as earlier versions, so saved presets and settings still find the display.
+        XCTAssertEqual(DisplayKey.key(vendor: 2513, model: 32859, serial: .max), "2513-32859-4294967295")
     }
 
     // MARK: Matching and applying
