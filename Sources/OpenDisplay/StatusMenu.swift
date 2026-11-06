@@ -61,8 +61,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     // MARK: Open and close
 
     /// Called just before the menu opens: the right moment to read the displays and build the items.
+    /// It does not clear the error: an error that came while the menu was closed (from Settings, or a change that
+    /// finished after the menu closed) shows now. See `menuDidClose`.
     func menuNeedsUpdate(_ menu: NSMenu) {
-        manager.lastError = nil
         manager.refresh()
         update()
         for display in manager.displays where display.isEnabled {
@@ -76,9 +77,13 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     private var menuEnabledDisplays: Set<CGDirectDisplayID> = []
     /// True if the last close came from a click or key press, not from macOS.
     private var closedByUser = false
+    /// Set while the app closes the menu to open it again. The current event can then still be the last click of the
+    /// user, so it must not count as a close by the user.
+    private var closingForReopen = false
 
     func menuWillOpen(_ menu: NSMenu) {
         MenuState.isOpen = true
+        closingForReopen = false
         openCount += 1
         menuScreen = iconScreen()
         menuEnabledDisplays = enabledDisplays()
@@ -97,7 +102,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     func menuDidClose(_ menu: NSMenu) {
         MenuState.isOpen = false
         let userEvents: [NSEvent.EventType] = [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .keyDown]
-        closedByUser = NSApp.currentEvent.map { userEvents.contains($0.type) } ?? false
+        closedByUser = !closingForReopen && (NSApp.currentEvent.map { userEvents.contains($0.type) } ?? false)
+        closingForReopen = false
+        // The user has seen the error now. When macOS closed the menu (during a display change), it opens again, so
+        // the error stays for that.
+        if closedByUser { manager.lastError = nil }
         update()
     }
 
@@ -142,6 +151,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         }
         if MenuState.isOpen {
             guard rowsMissing() || iconScreen() != menuScreen else { return }
+            closingForReopen = true
             menu.cancelTracking()
         } else if closedByUser {
             reopenWanted = nil

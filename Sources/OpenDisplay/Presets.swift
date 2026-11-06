@@ -53,14 +53,22 @@ extension DisplayManager {
         PresetPolicy.matches(preset, displays: presetDisplays)
     }
 
-    /// Applies a preset. Displays that are not in the preset stay as they are.
-    func apply(_ preset: Preset) {
-        guard let configure = PrivateAPI.configureDisplayEnabled else { return }
-        let targets = PresetPolicy.targets(of: preset, displays: presetDisplays)
-        guard targets.contains(where: { $0.state.isEnabled }) else {
-            lastError = "This preset turns off all displays."
-            return
+    /// Applies a preset. Displays that are not in the preset stay as they are. `done` gets the message for the user
+    /// (why nothing changed, what was skipped, what failed), or `nil` when the whole preset applied. The menu shows
+    /// the same message.
+    func apply(_ preset: Preset, done: @escaping @MainActor (String?) -> Void = { _ in }) {
+        let finish: @MainActor (String?) -> Void = { message in
+            self.lastError = message
+            done(message)
         }
+        guard let configure = PrivateAPI.configureDisplayEnabled else {
+            return finish("This macOS version does not support turning displays off.")
+        }
+        let plan = PresetPolicy.plan(preset, displays: presetDisplays)
+        if let refusal = plan.refusal {
+            return finish(refusal)
+        }
+        let targets = plan.targets
         // After the preset, a physical display must be on (a virtual display does not count, see `DisplayPolicy`).
         let changes = PresetPolicy.changes(targets)
         let turnsOn = changes.turnsOn, turnsOff = changes.turnsOff
@@ -75,19 +83,23 @@ extension DisplayManager {
             \(allowed ? "allowed" : "refused", privacy: .public); after: \(Self.describe(after), privacy: .public)
             """)
         guard allowed else {
-            lastError = "This preset turns off all displays."
-            return
+            return finish(PresetPolicy.turnsOffAllDisplays(notConnected: plan.notConnected))
         }
         lastError = nil
         let steps = targets
         let builtins = builtinIDs
+        let skipped = plan.skipped
 
         configQueue.async {
-            var errors: [String] = []
+            var errors = skipped
+            var failedToTurnOn: Set<CGDirectDisplayID> = []
             // Turn displays on first, so there is always a display that is on.
             // From the list: CGDisplayIsActive returns -1 for a display that is off (see `DisplayPolicy.states`).
             for (id, state) in steps where state.isEnabled && !Self.activeDisplays().contains(id) {
-                if let error = Self.applyEnabled(id, true, name: state.name, configure: configure) { errors.append(error) }
+                if let error = Self.applyEnabled(id, true, name: state.name, configure: configure) {
+                    errors.append(error)
+                    failedToTurnOn.insert(id)
+                }
             }
             for (id, state) in steps where state.isEnabled {
                 let current = DisplayModes.current(id)
@@ -95,9 +107,14 @@ extension DisplayManager {
                     $0.width == state.width && $0.height == state.height && $0.pixelWidth == state.pixelWidth
                         && abs($0.refreshRate - state.refreshRate) < 0.01
                 } ?? false
-                if !same, let mode = DisplayModes.find(id, width: state.width, height: state.height,
-                                                       pixelWidth: state.pixelWidth, refreshRate: state.refreshRate) {
-                    if let error = DisplayModes.apply(mode, to: id) { errors.append(error) }
+                if !same {
+                    if let mode = DisplayModes.find(id, width: state.width, height: state.height,
+                                                    pixelWidth: state.pixelWidth, refreshRate: state.refreshRate) {
+                        if let error = DisplayModes.apply(mode, to: id) { errors.append(error) }
+                    } else if !failedToTurnOn.contains(id) {
+                        // A display that did not turn on has its own error already.
+                        errors.append(PresetPolicy.resolutionNotAvailable(state))
+                    }
                 }
                 if DisplayArrangement.rotation(id) != state.rotation, let error = DisplayArrangement.setRotation(state.rotation, for: id) {
                     errors.append(error)
@@ -132,7 +149,7 @@ extension DisplayManager {
                         disabled[id] = state.name
                     }
                     self.disabled = disabled
-                    self.lastError = errors.first
+                    finish(PresetPolicy.report(errors))
                     self.refresh()
                     // Brightness last: a display that just turned on needs a moment before it accepts DDC.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
