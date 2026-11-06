@@ -28,8 +28,12 @@ public struct DisplayChanges: Equatable, Sendable {
     public mutating func end(_ change: Change) -> Bool {
         let id = change.id
         guard pending[id]?.remove(change.number) != nil else { return false }
-        if pending[id]?.isEmpty == true { pending[id] = nil }
-        return latest[id] == change.number
+        let isLatest = latest[id] == change.number
+        if pending[id]?.isEmpty == true {
+            pending[id] = nil
+            latest[id] = nil
+        }
+        return isLatest
     }
 
     /// What the app does with the result of a change that ended.
@@ -77,7 +81,7 @@ public struct DisplayChanges: Equatable, Sendable {
 
     /// The changes in progress, by display.
     private var pending: [UInt32: Set<Int>] = [:]
-    /// The number of each display's last change.
+    /// The number of the last change of each display with a change in progress.
     private var latest: [UInt32: Int] = [:]
     private var lastNumber = 0
 }

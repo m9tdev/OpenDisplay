@@ -596,7 +596,7 @@ final class DisplayManager {
     // MARK: On/off
 
     /// The on/off changes in progress, by display, from the menu and from presets. `refresh` must not undo their new
-    /// state, and keeps their displays in the list.
+    /// state, and keeps their displays in the list. Only `setEnabled` and the preset `apply` begin and end changes.
     @ObservationIgnored var changes = DisplayChanges()
     @ObservationIgnored let configQueue = DispatchQueue(label: "dev.m9t.OpenDisplay.display-config")
 
