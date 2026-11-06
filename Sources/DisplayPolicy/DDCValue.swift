@@ -17,6 +17,8 @@ public struct DDCValue: Equatable, Sendable {
     private var readsBeforeLastWrite = 0
     /// A write that waits for the read in flight, which tells the maximum: the level (0...1).
     private var waiting: Double?
+    /// The waiting write outdates the reads sent before it goes out.
+    private var waitingOutdatesReads = false
 
     public init() {}
 
@@ -49,9 +51,10 @@ public struct DDCValue: Equatable, Sendable {
     /// `outdatesReads`: false for a write the app does not show as its value (the calibration's), so the reads in
     /// flight still answer with the value to show.
     public mutating func set(_ level: Double, outdatesReads: Bool = true) -> UInt16? {
-        readsBeforeLastWrite = reads
+        if outdatesReads { readsBeforeLastWrite = reads }
         if maximum == nil && answered < reads {
             waiting = level
+            waitingOutdatesReads = waitingOutdatesReads || outdatesReads
             return nil
         }
         return Self.raw(level, maximum: maximum ?? Self.assumedMaximum)
@@ -70,8 +73,9 @@ public struct DDCValue: Equatable, Sendable {
         // Without an answer, the write goes out with the usual maximum: many monitors take writes but do not answer reads.
         let write = waiting.map { Self.raw($0, maximum: self.maximum ?? Self.assumedMaximum) }
         // The write goes out now, after the reads sent while it waited: they answer with the value from before it.
-        if write != nil { readsBeforeLastWrite = reads }
+        if write != nil && waitingOutdatesReads { readsBeforeLastWrite = reads }
         waiting = nil
+        waitingOutdatesReads = false
         if read.number <= readsBeforeLastWrite { return (.outdated(failed: current == nil || maximum == nil), write) }
         guard let current, let maximum else { return (.failed, write) }
         return (.show(current: current, level: maximum > 0 ? Double(current) / Double(maximum) : nil), write)

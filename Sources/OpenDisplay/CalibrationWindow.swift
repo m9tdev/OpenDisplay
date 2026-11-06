@@ -252,7 +252,7 @@ final class CalibrationSession {
         builtinWatch.calibrationSet(builtinLevel)
         _ = PrivateAPI.setBrightness?(builtin.id, builtinLevel)
         if usesDDC {
-            external.ddc?.setLater(vcp: VCP.brightness, value: UInt16((level * Double(external.ddcMax)).rounded()))
+            manager.setCalibrationLevel(external, level)
         } else {
             SoftwareDimming.set(BrightnessCurve.light(slider: level), for: external.id)
         }

@@ -382,6 +382,15 @@ final class DisplayManager {
         }
     }
 
+    /// Sets the DDC brightness `level` (0...1) of an external display directly, for the calibration: the app does not
+    /// show it as the display's value, so a read in flight still answers with the value to show. A write during the
+    /// first read waits for it, so it uses the monitor's own maximum.
+    func setCalibrationLevel(_ display: Display, _ level: Double) {
+        if let raw = display.brightnessDDC.set(level, outdatesReads: false) {
+            display.ddc?.setLater(vcp: VCP.brightness, value: raw)
+        }
+    }
+
     // MARK: Brightness sync
 
     // An external display can follow the built-in display's brightness, so the brightness keys and automatic brightness
