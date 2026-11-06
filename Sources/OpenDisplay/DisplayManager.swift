@@ -73,9 +73,14 @@ final class Display: Identifiable {
         DisplayKey.key(reported: reportedKey, remembered: rememberedKey)
     }
 
-    /// Identifies the external display across reconnects and restarts (the display ID can change).
+    /// The key per-display settings are saved by, kept by `DisplayManager`: the same as `knownKey`, except for a second
+    /// monitor of the same model without a serial number (see `DisplayKey.settingsKeys`).
+    @ObservationIgnored var settingsKey: String?
+
+    /// Identifies the external display across reconnects and restarts (the display ID can change), for the settings
+    /// saved by display. Two monitors of the same model without a serial number each have their own.
     var stableKey: String {
-        knownKey ?? "\(CGDisplayVendorNumber(id))-\(CGDisplayModelNumber(id))-\(CGDisplaySerialNumber(id))"
+        settingsKey ?? knownKey ?? "\(CGDisplayVendorNumber(id))-\(CGDisplayModelNumber(id))-\(CGDisplaySerialNumber(id))"
     }
 
     /// Identifies the display model, so all displays of one model share a calibration.
@@ -140,6 +145,19 @@ final class DisplayManager {
         }
         set {
             UserDefaults.standard.set(Dictionary(uniqueKeysWithValues: newValue.map { (String($0), $1) }), forKey: "displayKeys")
+        }
+    }
+
+    /// The settings key of each display, by ID (see `Display.settingsKey`). Kept across app restarts, so twin monitors
+    /// keep their own settings.
+    @ObservationIgnored var settingsKeys: [CGDirectDisplayID: String] {
+        get {
+            let stored = UserDefaults.standard.dictionary(forKey: "displaySettingsKeys") as? [String: String] ?? [:]
+            return Dictionary(uniqueKeysWithValues: stored.compactMap { id, key in UInt32(id).map { ($0, key) } })
+        }
+        set {
+            UserDefaults.standard.set(Dictionary(uniqueKeysWithValues: newValue.map { (String($0), $1) }),
+                                      forKey: "displaySettingsKeys")
         }
     }
 
@@ -211,6 +229,9 @@ final class DisplayManager {
             ($0, DisplayKey.key(vendor: CGDisplayVendorNumber($0), model: CGDisplayModelNumber($0), serial: CGDisplaySerialNumber($0)))
         }), keeping: Set(online).union(disabled.keys).union(ids))
         if keys != storedKeys { displayKeys = keys }
+        let storedSettingsKeys = settingsKeys
+        let keysForSettings = DisplayKey.settingsKeys(keys, previous: storedSettingsKeys)
+        if keysForSettings != storedSettingsKeys { settingsKeys = keysForSettings }
 
         let ddc = DDCDiscovery.services(for: ids.filter { active.contains($0) })
 
@@ -219,6 +240,7 @@ final class DisplayManager {
         for id in ids {
             let display = byID[id] ?? Display(id: id, name: disabled[id] ?? Self.name(of: id))
             display.rememberedKey = keys[id]
+            display.settingsKey = keysForSettings[id]
             if changes.isChanging(id) {
                 next.append(display)
                 continue
