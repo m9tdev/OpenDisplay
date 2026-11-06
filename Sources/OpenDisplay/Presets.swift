@@ -70,8 +70,8 @@ extension DisplayManager {
         }
         let targets = plan.targets
         // After the preset, a physical display must be on (a virtual display does not count, see `DisplayPolicy`).
-        let changes = PresetPolicy.changes(targets)
-        let turnsOn = changes.turnsOn, turnsOff = changes.turnsOff
+        let onOff = PresetPolicy.changes(targets)
+        let turnsOn = onOff.turnsOn, turnsOff = onOff.turnsOff
         let after = states.map { state in
             var state = state
             if turnsOn.contains(state.id) { state.isActive = true }
@@ -89,8 +89,13 @@ extension DisplayManager {
         let steps = targets
         let builtins = builtinIDs
         let skipped = plan.skipped
-        // A display that turns off stays in the list while the preset runs (see `DisplayChanges.listed`).
-        let started = turnsOff.sorted().map { self.changes.begin($0) }
+        // Show the displays that turn off as off at once, as `setEnabled` does: the menu's turn-off check and the
+        // brightness sync then see their new state. They stay in the list while the preset runs (see
+        // `DisplayChanges.listed`). Only the displays that are on now: the preset leaves the others alone.
+        let started = displays.filter { turnsOff.contains($0.id) && $0.isEnabled }.map { display in
+            display.isEnabled = false
+            return changes.begin(display.id)
+        }
 
         configQueue.async {
             var errors = skipped
