@@ -99,7 +99,7 @@ final class PresetPolicyTests: XCTestCase {
         XCTAssertEqual(keys, [1: builtinKey, 3: externalKey])
     }
 
-    func testAKnownDisplayWithoutASerialNumberReportHasAKey() {
+    func testAKnownDisplayThatReportsNoSerialNumberKeepsItsKey() {
         // The same key as earlier versions, so saved presets and settings still find the display.
         XCTAssertEqual(DisplayKey.key(vendor: 2513, model: 32859, serial: .max), "2513-32859-4294967295")
     }
@@ -191,6 +191,20 @@ final class PresetPolicyTests: XCTestCase {
         XCTAssertEqual(changes, .init(turnsOn: [3], turnsOff: [1]))
     }
 
+    func testAnEntryWhoseDisplayIDNowHasAnotherDisplayGoesToTheDisplayWithItsKey() {
+        // "Desk" was saved with the external display as ID 3. Now ID 3 is another monitor, and the external display
+        // has ID 5.
+        let preset = PresetPolicy.current(named: "Desk", displays: displays(externalOn: true))
+        let now: [PresetPolicy.Display] = [
+            .init(id: 3, key: "4268-41234-77", name: "Dell", isEnabled: true, mode: qhd),
+            .init(id: 5, key: externalKey, name: "BenQ", isEnabled: true, mode: fourK, isMain: true),
+            displays(externalOn: true)[1],
+        ]
+        let targets = PresetPolicy.targets(of: preset, displays: now)
+        XCTAssertEqual(targets.map(\.id), [5, 1])
+        XCTAssertTrue(PresetPolicy.matches(preset, displays: now))
+    }
+
     func testAPresetSavedByAnEarlierVersionGoesToTheFirstDisplayWithItsKey() {
         // Without saved display IDs, the entries go to the displays with their key in the order of the list.
         var preset = PresetPolicy.current(named: "One on", displays: twins())
@@ -208,7 +222,15 @@ final class PresetPolicyTests: XCTestCase {
         let presets = try JSONDecoder().decode([Preset].self, from: Data(json.utf8))
         XCTAssertEqual(presets.first?.displays.first?.key, externalKey)
         XCTAssertEqual(presets.first?.displays.first?.isEnabled, false)
+        XCTAssertNil(presets.first?.displays.first?.id)
         // Its saved mode does not count while the display is off.
         XCTAssertTrue(PresetPolicy.matches(presets[0], displays: displays(externalOn: false)))
+    }
+
+    func testAPresetKeepsItsDisplayIDsWhenSavedAndLoaded() throws {
+        let preset = PresetPolicy.current(named: "One on", displays: twins())
+        XCTAssertEqual(preset.displays.map(\.id), [3, 4])
+        let loaded = try JSONDecoder().decode(Preset.self, from: JSONEncoder().encode(preset))
+        XCTAssertEqual(loaded, preset)
     }
 }
