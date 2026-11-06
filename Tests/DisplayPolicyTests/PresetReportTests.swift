@@ -80,6 +80,17 @@ final class PresetReportTests: XCTestCase {
         XCTAssertEqual(plan.skipped, [])
     }
 
+    // MARK: Resolution
+
+    func testASkippedResolutionNamesTheDisplayAndTheMode() {
+        var state = entry(externalKey, "BenQ", on: true)
+        XCTAssertEqual(PresetPolicy.resolutionNotAvailable(state),
+                       "Skipped the resolution of BenQ: 2560 × 1440 at 60 Hz is not available.")
+        state.width = 1920; state.height = 1080; state.pixelWidth = 3840; state.refreshRate = 59.94
+        XCTAssertEqual(PresetPolicy.resolutionNotAvailable(state),
+                       "Skipped the resolution of BenQ: 1920 × 1080 HiDPI at 59.94 Hz is not available.")
+    }
+
     // MARK: Report
 
     func testTheReportHasEveryMessage() {

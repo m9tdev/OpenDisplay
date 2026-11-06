@@ -8,7 +8,7 @@ import SwiftUI
 /// A grouped form, like System Settings.
 @MainActor
 enum SettingsWindow {
-    private static var window: NSWindow?
+    fileprivate static var window: NSWindow?
 
     static func show(manager: DisplayManager, keyboard: KeyboardControl) {
         if window == nil {
@@ -54,6 +54,8 @@ private struct SettingsView: View {
     @State private var checksForUpdates = Updates.shared.automaticallyChecks
     @State private var newPresetName = ""
     @State private var error: String?
+    /// The result of the last Apply or the reason it changed nothing, shown under the presets.
+    @State private var presetMessage: String?
 
     /// The permission and the login item can change in System Settings, so check them again.
     private let recheck = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -104,6 +106,9 @@ private struct SettingsView: View {
                 ForEach(store.presets, id: \.name) { preset in
                     presetRow(preset)
                 }
+                if let presetMessage {
+                    Text(presetMessage).foregroundStyle(.red)
+                }
                 HStack {
                     TextField("Name", text: $newPresetName, prompt: Text("Name, for example “Desk”"))
                         .labelsHidden()
@@ -136,6 +141,10 @@ private struct SettingsView: View {
         .scrollDisabled(true)
         .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
+        // The window is reused: an old preset message must not show the next time it opens.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
+            if let window = notification.object as? NSWindow, window === SettingsWindow.window { presetMessage = nil }
+        }
         .onReceive(recheck) { _ in
             hasPermission = KeyboardControl.hasPermission
             launchAtLogin = SMAppService.mainApp.status == .enabled
@@ -185,7 +194,7 @@ private struct SettingsView: View {
                 if current {
                     Text("Current").foregroundStyle(.secondary)
                 } else {
-                    Button("Apply") { manager.apply(preset) }
+                    Button("Apply") { applyPreset(preset) }
                 }
                 Button(role: .destructive) {
                     store.delete(named: preset.name)
@@ -204,7 +213,13 @@ private struct SettingsView: View {
         newPresetName.trimmingCharacters(in: .whitespaces)
     }
 
+    private func applyPreset(_ preset: Preset) {
+        presetMessage = nil
+        manager.apply(preset) { presetMessage = $0 }
+    }
+
     private func savePreset() {
+        presetMessage = nil
         guard !trimmedName.isEmpty else { return }
         store.save(manager.currentPreset(named: trimmedName))
         newPresetName = ""

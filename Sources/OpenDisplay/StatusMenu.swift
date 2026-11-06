@@ -61,8 +61,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     // MARK: Open and close
 
     /// Called just before the menu opens: the right moment to read the displays and build the items.
+    /// It does not clear the error: an error that came while the menu was closed (from Settings, or a change that
+    /// finished after the menu closed) shows now. See `menuDidClose`.
     func menuNeedsUpdate(_ menu: NSMenu) {
-        manager.lastError = nil
         manager.refresh()
         update()
         for display in manager.displays where display.isEnabled {
@@ -98,6 +99,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         MenuState.isOpen = false
         let userEvents: [NSEvent.EventType] = [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .keyDown]
         closedByUser = NSApp.currentEvent.map { userEvents.contains($0.type) } ?? false
+        // The user has seen the error now. When macOS closed the menu (during a display change), it opens again, so
+        // the error stays for that.
+        if closedByUser { manager.lastError = nil }
         update()
     }
 
