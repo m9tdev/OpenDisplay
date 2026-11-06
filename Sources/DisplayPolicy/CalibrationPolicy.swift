@@ -42,28 +42,42 @@ public enum CalibrationPolicy {
 public struct CalibrationBuiltinWatch: Equatable, Sendable {
     /// The level the calibration set last, or nil if it set none yet.
     public private(set) var level: Float?
-    /// The reported value of the last set again, until macOS reports the level.
-    private var answered: Float?
-    /// Sets again since the calibration set `level`, or since reports away from it stopped for `quietTime`.
+    /// The reported value of the last set again, and when that set was. A report of the same value soon after the
+    /// set is its answer: macOS rounds or clamps the level.
+    private var answered: Answer?
+    private struct Answer: Equatable, Sendable {
+        var value: Float
+        var time: Double
+    }
+    /// When the last set again was.
+    private var lastSet: Double?
+    /// Sets again from reports. Back to 0 when the calibration sets a level, when a report away from the level comes
+    /// more than `quietTime` after both the last report away from it and the last set again, and when a settle check
+    /// finds the level.
     private var setsAgain = 0
     /// When macOS last reported a value away from `level`.
     private var lastAway: Double?
+    /// True from a report away from the level until the settle check.
+    private var settleCheckDue = false
+    /// Sets again from settle checks, back to 0 like `setsAgain` except for the quiet time.
+    private var settlesAgain = 0
+    /// The value the last settle check set again for.
+    private var settledValue: Float?
 
-    /// The most sets again in a row: after one level set by the calibration, or while reports away from it keep
-    /// coming with less than `quietTime` between them.
+    /// The most sets again in a row from reports, and also from settle checks.
     public static let maximumSetsAgain = 8
-    /// Reports away from the level that come after this pause (seconds) are a new change, such as another key press,
-    /// not a report of a set again.
+    /// Seconds without reports away from the level, after which the reports have stopped: a new one is a new change
+    /// (another key press), and the settle check reads the brightness.
     public static let quietTime = 1.0
+    /// Seconds after a set again in which a report of the value it answered is the answer to that set.
+    public static let answerTime = 0.2
 
     public init() {}
 
     /// The calibration set the built-in display to `level`.
     public mutating func calibrationSet(_ level: Float) {
+        self = Self()
         self.level = level
-        answered = nil
-        setsAgain = 0
-        lastAway = nil
     }
 
     /// macOS reports the built-in brightness `value`. Returns the level to set again, or nil.
@@ -73,31 +87,56 @@ public struct CalibrationBuiltinWatch: Equatable, Sendable {
             answered = nil
             return nil
         }
-        // Not a report that answers a set again: start over. A report of the level does not start over, because
+        // A new change, not an answer to a set again: start over. A report of the level does not start over, because
         // in a loop such reports can come between the others.
-        if let lastAway, time - lastAway > Self.quietTime {
+        if Self.isQuiet(since: lastAway, at: time), Self.isQuiet(since: lastSet, at: time) {
             answered = nil
             setsAgain = 0
         }
         lastAway = time
-        // The same value again right after a set again: macOS rounds or clamps the level, so it stays.
-        if let answered, abs(value - answered) < CalibrationPolicy.builtinTolerance { return nil }
+        settleCheckDue = true
+        if let answered, time - answered.time <= Self.answerTime,
+           abs(value - answered.value) < CalibrationPolicy.builtinTolerance { return nil }
         guard setsAgain < Self.maximumSetsAgain else { return nil }
-        answered = value
         setsAgain += 1
-        return level
+        return setAgain(answering: value, at: time)
     }
 
     /// When to read the built-in brightness once and pass it to `settled(_:at:)`, or nil if no check is due. Fast
-    /// key presses can use up the sets again, so after they stop, this check puts the level back.
+    /// key presses can use up the sets again from reports, so after they stop, this check puts the level back.
     public var settleCheckTime: Double? {
-        nil
+        guard settleCheckDue, let lastAway else { return nil }
+        return lastAway + Self.quietTime
     }
 
-    /// The built-in brightness `value`, read once at `settleCheckTime` or later. Returns the level to set again, or
-    /// nil.
+    /// The built-in brightness `value`, read once after `settleCheckTime`. Returns the level to set again, or nil.
     public mutating func settled(_ value: Float, at time: Double) -> Float? {
-        nil
+        guard let level, let lastAway, time - lastAway > Self.quietTime else { return nil }
+        settleCheckDue = false
+        guard CalibrationPolicy.mustSetBuiltinAgain(notified: value, calibrationLevel: level) else {
+            // On the level: nothing is set, so nothing can go on.
+            answered = nil
+            setsAgain = 0
+            settlesAgain = 0
+            settledValue = nil
+            return nil
+        }
+        // The same value as at the last check: macOS rounds or clamps the level, so setting it again changes nothing.
+        if let settledValue, abs(value - settledValue) < CalibrationPolicy.builtinTolerance { return nil }
+        guard settlesAgain < Self.maximumSetsAgain else { return nil }
+        settlesAgain += 1
+        settledValue = value
+        return setAgain(answering: value, at: time)
+    }
+
+    private mutating func setAgain(answering value: Float, at time: Double) -> Float? {
+        answered = Answer(value: value, time: time)
+        lastSet = time
+        return level
+    }
+
+    private static func isQuiet(since time: Double?, at now: Double) -> Bool {
+        time.map { now - $0 > quietTime } ?? true
     }
 }
 

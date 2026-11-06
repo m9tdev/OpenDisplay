@@ -51,6 +51,7 @@ final class CalibrationSession {
     @ObservationIgnored private var xdr: CGDirectDisplayID?
     /// The built-in level the calibration set last, to set it again if macOS changes it.
     @ObservationIgnored private var builtinWatch = CalibrationBuiltinWatch()
+    @ObservationIgnored private var settleCheck: DispatchWorkItem?
 
     private static var current: CalibrationSession?
     private static let recordKey = "calibrationInProgress"
@@ -95,9 +96,12 @@ final class CalibrationSession {
         // From here, only the calibration changes the brightness (see `CalibrationPolicy`).
         manager.isCalibrating = true
         manager.builtinChangedWhileCalibrating = { [weak self] value in
-            guard let self, let level = self.builtinWatch.reported(value, at: ProcessInfo.processInfo.systemUptime) else { return }
+            guard let self else { return }
             // macOS changed it, for example with the brightness keys when the app does not catch them.
-            _ = PrivateAPI.setBrightness?(self.builtin.id, level)
+            if let level = self.builtinWatch.reported(value, at: ProcessInfo.processInfo.systemUptime) {
+                _ = PrivateAPI.setBrightness?(self.builtin.id, level)
+            }
+            self.scheduleSettleCheck()
         }
         // Saved with the result, because other monitor settings give other light.
         manager.readMonitorSettings(external)
@@ -218,6 +222,26 @@ final class CalibrationSession {
         }
     }
 
+    /// Reads the built-in brightness once after the reports stop (see `CalibrationBuiltinWatch.settleCheckTime`).
+    private func scheduleSettleCheck() {
+        settleCheck?.cancel()
+        settleCheck = nil
+        guard let checkTime = builtinWatch.settleCheckTime else { return }
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, Self.current === self else { return }
+                var value: Float = 0
+                guard let get = PrivateAPI.getBrightness, get(self.builtin.id, &value) == 0,
+                      let level = self.builtinWatch.settled(value, at: ProcessInfo.processInfo.systemUptime) else { return }
+                _ = PrivateAPI.setBrightness?(self.builtin.id, level)
+            }
+        }
+        settleCheck = work
+        // A little after the time, so the check counts as after it.
+        let delay = max(checkTime - ProcessInfo.processInfo.systemUptime, 0) + 0.1
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
     /// - Parameters:
     ///   - builtin: The built-in display's slider position, on the macOS curve.
     ///   - external: The external display's DDC level, 0...1. Without DDC: its slider position for software dimming.
@@ -255,6 +279,8 @@ final class CalibrationSession {
         windows = []
 
         manager.builtinChangedWhileCalibrating = nil
+        settleCheck?.cancel()
+        settleCheck = nil
         manager.isCalibrating = false
         if let xdr {
             XDRBoost.shared.setEnabled(true, for: xdr)
