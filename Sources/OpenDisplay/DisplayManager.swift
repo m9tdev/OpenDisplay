@@ -35,6 +35,8 @@ final class Display: Identifiable {
     @ObservationIgnored var volumeMax: UInt16 = 100
     /// Software dimming: 1 is the normal image.
     @ObservationIgnored var dimming: Double = 1
+    /// `stableKey`, from the last time the display was on: macOS has no identity for a display that went away.
+    @ObservationIgnored var stableKeyWhenOn: String?
     /// How the light follows the DDC level. From the calibration of the display model, if there is one.
     @ObservationIgnored var curve = ExternalCurve()
     /// The monitor settings that change the light, by name (see `BrightnessCalibration.monitorSettings`).
@@ -90,6 +92,8 @@ final class DisplayManager {
     @ObservationIgnored private var observer: NSObjectProtocol?
     @ObservationIgnored private var wakeObservers: [NSObjectProtocol] = []
     @ObservationIgnored private var pendingRefresh: DispatchWorkItem?
+    /// The software dimming of the displays that went away, for when they come back.
+    @ObservationIgnored private var reconnects = ReconnectMemory()
 
     /// Displays we turned off, with their names. Kept so they stay in the list (and survive an app restart).
     @ObservationIgnored var disabled: [CGDirectDisplayID: String] {
@@ -163,6 +167,7 @@ final class DisplayManager {
 
         let ddc = DDCDiscovery.services(for: ids.filter { active.contains($0) })
 
+        let wasEnabled = byID.mapValues(\.isEnabled)
         var next: [Display] = []
         for id in ids {
             let display = byID[id] ?? Display(id: id, name: disabled[id] ?? Self.name(of: id))
@@ -174,6 +179,7 @@ final class DisplayManager {
             display.isBuiltin = DisplayPolicy.isBuiltin(answer: CGDisplayIsBuiltin(id), id: id, builtins: builtins)
             if display.isEnabled {
                 display.name = Self.name(of: id)
+                display.stableKeyWhenOn = display.stableKey
                 if display.ddc == nil || ddc[id] == nil {
                     display.ddc = ddc[id]
                     display.brightness = nil
@@ -184,10 +190,24 @@ final class DisplayManager {
             }
             next.append(display)
         }
+        let kept = Set(next.map(\.id))
+        for display in byID.values where !kept.contains(display.id) {
+            reconnects.displayLeft(key: display.stableKeyWhenOn, dimming: display.dimming)
+        }
+        for display in next where display.isEnabled && wasEnabled[display.id] == nil {
+            // A new display object, so its dimming starts at 1; it gets back what it had when it went away.
+            display.dimming = reconnects.displayReturned(key: display.stableKey)
+        }
         byID = Dictionary(uniqueKeysWithValues: next.map { ($0.id, $0) })
         displays = next.sorted { ($0.isBuiltin ? 1 : 0, $0.id) < ($1.isBuiltin ? 1 : 0, $1.id) }
         // After the DDC check: a display with DDC and one without use different calibrations.
         updateCurves()
+        if ReconnectMemory.resyncsBrightness(displays.map {
+            .init(wasEnabled: wasEnabled[$0.id], isEnabled: $0.isEnabled, isSynced: $0.isEnabled && isSynced($0))
+        }) {
+            // `syncFromBuiltin` below applies the shared brightness only when the built-in brightness changed.
+            lastBuiltinBacklight = nil
+        }
 
         for display in displays where display.isEnabled && display.dimming < 1 {
             // A display that turned off and on again has its normal color table again.
