@@ -13,12 +13,12 @@ public enum CalibrationPolicy {
     }
 
     public static func brightnessKey(isCalibrating: Bool) -> BrightnessKey {
-        .normal
+        isCalibrating ? .ignore : .normal
     }
 
     /// True if a brightness change from outside the calibration (a key, a slider, a preset) may reach the displays.
     public static func allowsBrightnessChange(isCalibrating: Bool) -> Bool {
-        true
+        !isCalibrating
     }
 
     /// The smallest change of the built-in brightness that the calibration takes as a change by someone else.
@@ -32,7 +32,8 @@ public enum CalibrationPolicy {
     ///   - notified: The built-in brightness that macOS reports.
     ///   - calibrationLevel: The level the calibration set last, or nil if it set none yet.
     public static func mustSetBuiltinAgain(notified: Float, calibrationLevel: Float?) -> Bool {
-        false
+        guard let calibrationLevel else { return false }
+        return abs(notified - calibrationLevel) >= builtinTolerance
     }
 }
 
@@ -62,12 +63,13 @@ public struct CalibrationRecord: Codable, Equatable, Sendable {
 
     /// For UserDefaults.
     public var data: Data? {
-        nil
+        try? JSONEncoder().encode(self)
     }
 
     /// From UserDefaults. nil if there is no record, or it cannot be read.
     public init?(data: Data?) {
-        return nil
+        guard let data, let record = try? JSONDecoder().decode(Self.self, from: data) else { return nil }
+        self = record
     }
 
     /// The external display, when the calibration ends.
@@ -100,7 +102,7 @@ public struct CalibrationRecord: Codable, Equatable, Sendable {
     public func restore(external: External) -> Restore {
         let externalBrightness: Double? = switch external {
         case .absent, .synced: nil
-        case .own: self.externalBrightness
+        case .own(let brightness): self.externalBrightness ?? brightness
         }
         return Restore(autoBrightness: autoBrightness, trueTone: trueTone, builtinBrightness: builtinBrightness,
                        externalBrightness: externalBrightness)

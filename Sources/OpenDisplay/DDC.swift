@@ -45,6 +45,13 @@ final class DDCService: @unchecked Sendable {
         }
     }
 
+    /// Waits until the queued writes and reads are sent, at most `timeout` seconds. For when the app quits.
+    func waitForWrites(timeout: TimeInterval) {
+        let done = DispatchSemaphore(value: 0)
+        queue.async { done.signal() }
+        _ = done.wait(timeout: .now() + timeout)
+    }
+
     /// Read a VCP value off the main thread. Calls back on the main queue.
     func readLater(vcp: UInt8, completion: @escaping @Sendable ((current: UInt16, max: UInt16)?) -> Void) {
         queue.async {

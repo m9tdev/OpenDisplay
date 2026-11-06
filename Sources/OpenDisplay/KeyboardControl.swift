@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import CoreAudio
+import DisplayPolicy
 
 /// Makes the brightness and volume keys work for external displays, like on the built-in display.
 ///
@@ -118,6 +119,8 @@ final class KeyboardControl {
 
         switch key {
         case .brightnessUp, .brightnessDown:
+            // The calibration compares the displays by eye, so it alone changes their brightness until it ends.
+            if CalibrationPolicy.brightnessKey(isCalibrating: manager.isCalibrating) == .ignore { return nil }
             let up = key == .brightnessUp
             // Above the built-in display's maximum, only the synced displays can go brighter, so change their
             // shared brightness here. macOS cannot.

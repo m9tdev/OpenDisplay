@@ -145,9 +145,18 @@ final class DisplayManager {
 
     init() {
         refresh()
-        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
-            // macOS also does this when the app quits, but do not depend on it.
-            MainActor.assumeIsolated { SoftwareDimming.restoreAll() }
+        CalibrationSession.restoreUnfinished(manager: self)
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                // Logout, restart or an update can quit the app during a calibration.
+                CalibrationSession.finishCurrent()
+                // The DDC writes that put the brightness back.
+                for display in self?.displays ?? [] {
+                    display.ddc?.waitForWrites(timeout: 1)
+                }
+                // macOS also does this when the app quits, but do not depend on it.
+                SoftwareDimming.restoreAll()
+            }
         }
         observer = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
@@ -321,6 +330,7 @@ final class DisplayManager {
     }
 
     func setBrightness(_ display: Display, to value: Double) {
+        guard CalibrationPolicy.allowsBrightnessChange(isCalibrating: isCalibrating) else { return }
         let value = min(max(value, 0), 1)
         if display.isBuiltin {
             applyBrightness(display, value)
@@ -396,6 +406,7 @@ final class DisplayManager {
     }
 
     func setSharedBrightness(_ value: Double) {
+        guard CalibrationPolicy.allowsBrightnessChange(isCalibrating: isCalibrating) else { return }
         let value = min(max(value, 0), 1)
         sharedBrightness = value
         for display in syncedDisplays {
@@ -465,7 +476,10 @@ final class DisplayManager {
     /// - Parameter notified: The new built-in brightness from the notification, or nil to read it.
     private func syncFromBuiltin(_ notified: Float? = nil) {
         // The calibration sets the built-in brightness itself, and the external display must not follow it.
-        guard !isCalibrating else { return }
+        guard !isCalibrating else {
+            if let notified { builtinChangedWhileCalibrating?(notified) }
+            return
+        }
         guard let builtin = displays.first(where: { $0.isBuiltin && $0.isEnabled }) else { return }
         var backlight: Float = 0
         if let notified {
@@ -486,8 +500,11 @@ final class DisplayManager {
         didSet { CalibrationStore.save(calibrations) }
     }
 
-    /// True while the calibration window controls the brightness. Then brightness sync stops.
+    /// True while the calibration window controls the brightness. Then brightness sync stops, and the brightness
+    /// keys and other brightness changes wait (see `CalibrationPolicy`).
     @ObservationIgnored var isCalibrating = false
+    /// While calibrating: gets each new built-in brightness that macOS reports.
+    @ObservationIgnored var builtinChangedWhileCalibrating: (@MainActor (Float) -> Void)?
 
     func calibration(for display: Display) -> BrightnessCalibration? {
         calibrations[display.modelKey]
