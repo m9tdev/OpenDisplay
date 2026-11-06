@@ -37,6 +37,29 @@ public enum CalibrationPolicy {
     }
 }
 
+/// Keeps the built-in display at the calibration's level when macOS changes it, without a loop: if macOS rounds or
+/// clamps the level it reports, and reports each set, each set again would bring another report.
+public struct CalibrationBuiltinWatch: Equatable, Sendable {
+    /// The level the calibration set last, or nil if it set none yet.
+    public private(set) var level: Float?
+
+    /// The most sets again after one level set by the calibration.
+    public static let maximumSetsAgain = 8
+
+    public init() {}
+
+    /// The calibration set the built-in display to `level`.
+    public mutating func calibrationSet(_ level: Float) {
+        self.level = level
+    }
+
+    /// macOS reports the built-in brightness `value`. Returns the level to set again, or nil.
+    public mutating func reported(_ value: Float) -> Float? {
+        guard CalibrationPolicy.mustSetBuiltinAgain(notified: value, calibrationLevel: level) else { return nil }
+        return level
+    }
+}
+
 /// What the calibration changed, saved while it runs. If the app ends without a chance to put it back (a crash),
 /// the next launch puts it back from this record.
 public struct CalibrationRecord: Codable, Equatable, Sendable {
@@ -70,6 +93,12 @@ public struct CalibrationRecord: Codable, Equatable, Sendable {
     public init?(data: Data?) {
         guard let data, let record = try? JSONDecoder().decode(Self.self, from: data) else { return nil }
         self = record
+    }
+
+    /// The record of a new calibration, while `unfinished` (from a calibration the app could not finish) is not put
+    /// back yet: what that one turned off and the brightness from before it must still come back.
+    public func keeping(_ unfinished: CalibrationRecord?) -> CalibrationRecord {
+        self
     }
 
     /// The external display, when the calibration ends.

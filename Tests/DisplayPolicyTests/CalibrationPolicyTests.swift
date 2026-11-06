@@ -39,6 +39,55 @@ final class CalibrationPolicyTests: XCTestCase {
         XCTAssertFalse(CalibrationPolicy.mustSetBuiltinAgain(notified: 0.7, calibrationLevel: nil))
     }
 
+    // MARK: Built-in level set again
+
+    func testAKeyPressIsUndone() {
+        var watch = CalibrationBuiltinWatch()
+        watch.calibrationSet(0.4)
+        XCTAssertEqual(watch.reported(0.4), nil)
+        XCTAssertEqual(watch.reported(0.4 + 1.0 / 16), 0.4)
+    }
+
+    func testTheSameKeyPressedAgainIsUndoneAgain() {
+        var watch = CalibrationBuiltinWatch()
+        watch.calibrationSet(0.4)
+        XCTAssertEqual(watch.reported(0.4 + 1.0 / 16), 0.4)
+        XCTAssertEqual(watch.reported(0.4), nil)
+        XCTAssertEqual(watch.reported(0.4 + 1.0 / 16), 0.4)
+    }
+
+    func testALevelMacOSReportsOtherwiseIsSetAgainOnce() {
+        // macOS clamps the lowest step's level, and reports each set with its own value.
+        var watch = CalibrationBuiltinWatch()
+        watch.calibrationSet(0.01)
+        XCTAssertEqual(watch.reported(0.03), 0.01)
+        XCTAssertEqual(watch.reported(0.03), nil)
+        XCTAssertEqual(watch.reported(0.03), nil)
+    }
+
+    func testSetsAgainStopWhenReportsNeverSettle() {
+        // Two reports for each set, one of them never the level: without a limit, this goes on forever.
+        var watch = CalibrationBuiltinWatch()
+        watch.calibrationSet(0.4)
+        var sets = 0
+        for _ in 0..<1000 {
+            if watch.reported(0.5) != nil { sets += 1 }
+            _ = watch.reported(0.4)
+        }
+        XCTAssertLessThanOrEqual(sets, CalibrationBuiltinWatch.maximumSetsAgain)
+    }
+
+    func testANewLevelFromTheCalibrationAllowsSetsAgain() {
+        var watch = CalibrationBuiltinWatch()
+        watch.calibrationSet(0.4)
+        for _ in 0..<1000 {
+            _ = watch.reported(0.5)
+            _ = watch.reported(0.4)
+        }
+        watch.calibrationSet(0.6)
+        XCTAssertEqual(watch.reported(0.5), 0.6)
+    }
+
     // MARK: Record
 
     let record = CalibrationRecord(autoBrightness: true, trueTone: true, builtinBrightness: 0.6,
@@ -57,6 +106,34 @@ final class CalibrationPolicyTests: XCTestCase {
     func testNoRecordOrADamagedOneRestoresNothing() {
         XCTAssertNil(CalibrationRecord(data: nil))
         XCTAssertNil(CalibrationRecord(data: Data("not a record".utf8)))
+    }
+
+    func testANewCalibrationKeepsWhatAnUnfinishedOneTurnedOff() {
+        // The unfinished calibration turned both off, so the new one finds them off.
+        let new = CalibrationRecord(autoBrightness: false, trueTone: false, builtinBrightness: 0.2,
+                                    externalKey: "4C2D-0E36-1234", externalBrightness: 0)
+        let kept = new.keeping(record)
+        XCTAssertTrue(kept.autoBrightness)
+        XCTAssertTrue(kept.trueTone)
+    }
+
+    func testANewCalibrationKeepsTheBrightnessFromBeforeAnUnfinishedOne() {
+        let new = CalibrationRecord(autoBrightness: false, trueTone: false, builtinBrightness: 0.2,
+                                    externalKey: "4C2D-0E36-1234", externalBrightness: 0)
+        XCTAssertEqual(new.keeping(record), record)
+    }
+
+    func testAnotherExternalKeepsItsOwnBrightness() {
+        let new = CalibrationRecord(autoBrightness: false, trueTone: false, builtinBrightness: 0.2,
+                                    externalKey: "10AC-A0C4-5678", externalBrightness: 0.3)
+        let kept = new.keeping(record)
+        XCTAssertEqual(kept.builtinBrightness, 0.6)
+        XCTAssertEqual(kept.externalKey, "10AC-A0C4-5678")
+        XCTAssertEqual(kept.externalBrightness, 0.3)
+    }
+
+    func testWithoutAnUnfinishedCalibrationTheRecordStays() {
+        XCTAssertEqual(record.keeping(nil), record)
     }
 
     // MARK: Restore
