@@ -329,6 +329,10 @@ final class DisplayManager {
                     display.brightness = BrightnessControl.external(display.curve).slider(
                         readLevel: level, dimming: display.dimming, shown: display.brightness,
                         levelStep: 1 / Double(display.ddcMax))
+                } else if answer == .outdated {
+                    // The app set the brightness after the read was sent (for example brightness sync at launch):
+                    // the monitor answered with its level from before.
+                    return
                 } else {
                     // Writes often work when reads do not, so still allow control.
                     display.brightness = 0.5
