@@ -69,8 +69,10 @@ public struct DDCValue: Equatable, Sendable {
         if let maximum, maximum > 0 { self.maximum = maximum }
         // Without an answer, the write goes out with the usual maximum: many monitors take writes but do not answer reads.
         let write = waiting.map { Self.raw($0, maximum: self.maximum ?? Self.assumedMaximum) }
+        // The write goes out now, after the reads sent while it waited: they answer with the value from before it.
+        if write != nil { readsBeforeLastWrite = reads }
         waiting = nil
-        if read.number <= readsBeforeLastWrite { return (.outdated(failed: false), write) }
+        if read.number <= readsBeforeLastWrite { return (.outdated(failed: current == nil || maximum == nil), write) }
         guard let current, let maximum else { return (.failed, write) }
         return (.show(current: current, level: maximum > 0 ? Double(current) / Double(maximum) : nil), write)
     }
