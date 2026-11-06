@@ -50,7 +50,7 @@ final class CalibrationSession {
     /// not in the record.
     @ObservationIgnored private var xdr: CGDirectDisplayID?
     /// The built-in level the calibration set last, to set it again if macOS changes it.
-    @ObservationIgnored private var builtinLevel: Float?
+    @ObservationIgnored private var builtinWatch = CalibrationBuiltinWatch()
 
     private static var current: CalibrationSession?
     private static let recordKey = "calibrationInProgress"
@@ -79,6 +79,8 @@ final class CalibrationSession {
         record = CalibrationRecord(autoBrightness: autoBrightnessOn, trueTone: trueToneOn,
                                    builtinBrightness: builtin.brightness, externalKey: external.stableKey,
                                    externalBrightness: external.brightness)
+            // A crash's record that the launch has not put back yet.
+            .keeping(CalibrationRecord(data: UserDefaults.standard.data(forKey: Self.recordKey)))
         // Before the changes: if the app ends without `finish` (a crash), the next launch puts them back.
         UserDefaults.standard.set(record.data, forKey: Self.recordKey)
         if autoBrightnessOn {
@@ -93,8 +95,7 @@ final class CalibrationSession {
         // From here, only the calibration changes the brightness (see `CalibrationPolicy`).
         manager.isCalibrating = true
         manager.builtinChangedWhileCalibrating = { [weak self] value in
-            guard let self, CalibrationPolicy.mustSetBuiltinAgain(notified: value, calibrationLevel: self.builtinLevel),
-                  let level = self.builtinLevel else { return }
+            guard let self, let level = self.builtinWatch.reported(value) else { return }
             // macOS changed it, for example with the brightness keys when the app does not catch them.
             _ = PrivateAPI.setBrightness?(self.builtin.id, level)
         }
@@ -222,7 +223,7 @@ final class CalibrationSession {
     ///   - external: The external display's DDC level, 0...1. Without DDC: its slider position for software dimming.
     private func set(builtin value: Double, external level: Double) {
         let builtinLevel = Float(max(value, 0.01))
-        self.builtinLevel = builtinLevel
+        builtinWatch.calibrationSet(builtinLevel)
         _ = PrivateAPI.setBrightness?(builtin.id, builtinLevel)
         if usesDDC {
             external.ddc?.setLater(vcp: VCP.brightness, value: UInt16((level * Double(external.ddcMax)).rounded()))
@@ -273,12 +274,17 @@ final class CalibrationSession {
     /// Puts back what a calibration changed if the app ended during it without `finish` (a crash). Call once at launch,
     /// after the first refresh.
     static func restoreUnfinished(manager: DisplayManager) {
-        guard let record = CalibrationRecord(data: UserDefaults.standard.data(forKey: recordKey)) else { return }
-        // First: if the restore itself fails, it must not run at each launch.
-        UserDefaults.standard.removeObject(forKey: recordKey)
+        guard CalibrationRecord(data: UserDefaults.standard.data(forKey: recordKey)) != nil else { return }
         // After the first DDC reads: then a brightness write uses the monitor's own maximum, and no read overwrites it.
+        // Until then the record stays, so a quit still leaves it for the next launch.
         DispatchQueue.main.asyncAfter(deadline: .now() + DisplayManager.ddcReadyDelay) {
             MainActor.assumeIsolated {
+                // A calibration that started meanwhile took the record over (see `CalibrationRecord.keeping`), and
+                // puts it back when it ends.
+                guard current == nil,
+                      let record = CalibrationRecord(data: UserDefaults.standard.data(forKey: recordKey)) else { return }
+                // Before the restore: if the restore itself fails, it must not run at each launch.
+                UserDefaults.standard.removeObject(forKey: recordKey)
                 let builtin = manager.displays.first { $0.isBuiltin }
                 let external = manager.displays.first { !$0.isBuiltin && $0.isEnabled && $0.stableKey == record.externalKey }
                 let state: CalibrationRecord.External = if let external {

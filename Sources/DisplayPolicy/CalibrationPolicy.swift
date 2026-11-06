@@ -42,6 +42,10 @@ public enum CalibrationPolicy {
 public struct CalibrationBuiltinWatch: Equatable, Sendable {
     /// The level the calibration set last, or nil if it set none yet.
     public private(set) var level: Float?
+    /// The reported value of the last set again, until macOS reports the level.
+    private var answered: Float?
+    /// Sets again since the calibration set `level`.
+    private var setsAgain = 0
 
     /// The most sets again after one level set by the calibration.
     public static let maximumSetsAgain = 8
@@ -51,11 +55,21 @@ public struct CalibrationBuiltinWatch: Equatable, Sendable {
     /// The calibration set the built-in display to `level`.
     public mutating func calibrationSet(_ level: Float) {
         self.level = level
+        answered = nil
+        setsAgain = 0
     }
 
     /// macOS reports the built-in brightness `value`. Returns the level to set again, or nil.
     public mutating func reported(_ value: Float) -> Float? {
-        guard CalibrationPolicy.mustSetBuiltinAgain(notified: value, calibrationLevel: level) else { return nil }
+        guard let level, CalibrationPolicy.mustSetBuiltinAgain(notified: value, calibrationLevel: level) else {
+            answered = nil
+            return nil
+        }
+        // The same value again right after a set again: macOS rounds or clamps the level, so it stays.
+        if let answered, abs(value - answered) < CalibrationPolicy.builtinTolerance { return nil }
+        guard setsAgain < Self.maximumSetsAgain else { return nil }
+        answered = value
+        setsAgain += 1
         return level
     }
 }
@@ -98,7 +112,15 @@ public struct CalibrationRecord: Codable, Equatable, Sendable {
     /// The record of a new calibration, while `unfinished` (from a calibration the app could not finish) is not put
     /// back yet: what that one turned off and the brightness from before it must still come back.
     public func keeping(_ unfinished: CalibrationRecord?) -> CalibrationRecord {
-        self
+        guard let unfinished else { return self }
+        // The new calibration finds what the unfinished one changed, so its values are the unfinished one's.
+        let sameExternal = unfinished.externalKey == externalKey
+        return CalibrationRecord(
+            autoBrightness: autoBrightness || unfinished.autoBrightness,
+            trueTone: trueTone || unfinished.trueTone,
+            builtinBrightness: unfinished.builtinBrightness ?? builtinBrightness,
+            externalKey: externalKey,
+            externalBrightness: sameExternal ? unfinished.externalBrightness ?? externalBrightness : externalBrightness)
     }
 
     /// The external display, when the calibration ends.
