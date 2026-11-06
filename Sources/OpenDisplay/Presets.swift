@@ -89,6 +89,8 @@ extension DisplayManager {
         let steps = targets
         let builtins = builtinIDs
         let skipped = plan.skipped
+        // A display that turns off stays in the list while the preset runs (see `DisplayChanges.listed`).
+        let started = turnsOff.sorted().map { self.changes.begin($0) }
 
         configQueue.async {
             var errors = skipped
@@ -142,6 +144,7 @@ extension DisplayManager {
             let off = turnedOff
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
+                    for change in started { _ = self.changes.end(change) }
                     // Only mark the displays that really turned off. `refresh` clears the ones that are on again, so
                     // a display the preset could not turn on stays marked as off.
                     var disabled = self.disabled
