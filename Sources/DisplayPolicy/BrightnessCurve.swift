@@ -65,7 +65,10 @@ public enum BrightnessControl: Equatable, Sendable {
         case .builtin:
             return min(max(level ?? 1, 0), 1)
         case .external(let curve):
-            let light = dimming < 1 ? dimming * curve.lowest : curve.light(level: level ?? 1)
+            // The software dimming scales the light of the level, also when the level is above the lowest (changed
+            // with the monitor's own buttons). Without a level, the dimmed display is at its lowest level.
+            let hardware = level.map { curve.light(level: $0) } ?? (dimming < 1 ? curve.lowest : 1)
+            let light = dimming * hardware
             return BrightnessCurve.slider(light: light / curve.scale)
         case .software(let scale):
             return BrightnessCurve.slider(light: dimming / scale)
