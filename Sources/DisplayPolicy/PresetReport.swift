@@ -30,7 +30,7 @@ extension PresetPolicy {
                 : turnsOffAllDisplays(notConnected: notConnected)
         }
         return Plan(targets: targets, notConnected: notConnected, refusal: refusal,
-                    skipped: notConnected.map { "Skipped \($0.name): not connected." })
+                    skipped: uniqueNames(notConnected).map { "Skipped \($0): not connected." })
     }
 
     /// The refusal when no display would stay on (see also `DisplayPolicy.canDisable`). When the preset turns on a
@@ -71,13 +71,15 @@ extension PresetPolicy {
             return run
         }
 
-        /// An Apply finished with `message`.
+        /// An Apply finished with `message`. Ignored when another Apply started since, or the window closed.
         public mutating func finish(_ run: Int, message: String?) {
+            guard run == self.run else { return }
             text = message
         }
 
-        /// The window closed: its message goes.
+        /// The window closed: its message goes, and so do the results of the runs still going.
         public mutating func close() {
+            run += 1
             text = nil
         }
 
@@ -87,9 +89,16 @@ extension PresetPolicy {
         }
     }
 
+    /// The names of `states`, each once: two displays of the same model have the same name.
+    private static func uniqueNames(_ states: [Preset.DisplayState]) -> [String] {
+        var names: [String] = []
+        for state in states where !names.contains(state.name) { names.append(state.name) }
+        return names
+    }
+
     /// "Dell is not connected", "Dell and LG are not connected".
     private static func isNotConnected(_ states: [Preset.DisplayState]) -> String {
-        let names = states.map(\.name)
+        let names = uniqueNames(states)
         let list = names.count == 1 ? names[0] : names.dropLast().joined(separator: ", ") + " and " + names.last!
         return "\(list) \(names.count == 1 ? "is" : "are") not connected"
     }

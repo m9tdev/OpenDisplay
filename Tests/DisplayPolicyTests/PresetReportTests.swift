@@ -64,6 +64,9 @@ final class PresetReportTests: XCTestCase {
         other.isMain = false
         let plan = PresetPolicy.plan(Preset(name: "Office", displays: [dell, other]), displays: connected)
         XCTAssertEqual(plan.refusal, "Nothing changed: Dell is not connected.")
+        let partly = PresetPolicy.plan(Preset(name: "Desk", displays: [entry(builtinKey, "Built-in", on: true), dell, other]),
+                                       displays: connected)
+        XCTAssertEqual(partly.skipped, ["Skipped Dell: not connected."])
     }
 
     // MARK: Part connected
