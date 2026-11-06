@@ -208,6 +208,14 @@ final class DisplayManager {
         if plan.resyncsBrightness {
             // `syncFromBuiltin` below applies the shared brightness only when the built-in brightness changed.
             lastBuiltinBacklight = nil
+            // A display that just turned on needs a moment before it accepts DDC, so its DDC write now may be lost.
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.ddcReadyDelay) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.lastBuiltinBacklight = nil
+                    self.syncFromBuiltin()
+                }
+            }
         }
 
         for display in displays where display.isEnabled && display.dimming < 1 {
@@ -229,6 +237,9 @@ final class DisplayManager {
         revision += 1
         keepADisplayOn()
     }
+
+    /// How long a display that just turned on needs before it accepts DDC writes.
+    static let ddcReadyDelay: TimeInterval = 1.5
 
     /// A display for `ReconnectMemory`.
     private func reconnectSnapshot(_ display: Display) -> ReconnectMemory.Snapshot {
