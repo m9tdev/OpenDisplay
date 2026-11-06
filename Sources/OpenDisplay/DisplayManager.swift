@@ -640,8 +640,10 @@ final class DisplayManager {
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
                             // A later change of the display (a quick second click) sets the state it shows.
-                            if self.changes.end(change) { display.isEnabled = true }
-                            self.lastError = "You cannot turn off the last display that is on."
+                            let outcome = self.changes.end(
+                                change, error: "You cannot turn off the last display that is on.")
+                            if outcome.isLatest { display.isEnabled = true }
+                            if let error = outcome.shownError { self.lastError = error }
                             self.scheduleRefresh()
                         }
                     }
@@ -651,12 +653,19 @@ final class DisplayManager {
             let error = Self.applyEnabled(id, enabled, name: name, configure: configure)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    // A later change of the display (a quick second click) sets the state it shows. This change
-                    // still records what it did: the later one may fail.
-                    let isLatest = self.changes.end(change)
+                    // A later change of the display (a quick second click) sets the state it shows, and its result
+                    // is the one to show. This change still records what it did: the later one may fail.
+                    let outcome = self.changes.end(change, error: error)
                     if let error {
-                        if isLatest { display.isEnabled = !enabled }
-                        self.lastError = error
+                        if outcome.isLatest {
+                            display.isEnabled = !enabled
+                        } else {
+                            Self.log.error("""
+                                Turn \(enabled ? "on" : "off", privacy: .public) \(id, privacy: .public), \
+                                before a later change: \(error, privacy: .private)
+                                """)
+                        }
+                        if let shown = outcome.shownError { self.lastError = shown }
                         // macOS may have changed part of the setup: show what it is now.
                         self.scheduleRefresh()
                         return

@@ -48,7 +48,8 @@ public struct DisplayChanges: Equatable, Sendable {
 
     /// Ends a change that failed with `error`, or worked (`nil`), as `end(_:)` does.
     public mutating func end(_ change: Change, error: String?) -> Outcome {
-        Outcome(isLatest: end(change), shownError: error)
+        let isLatest = end(change)
+        return Outcome(isLatest: isLatest, shownError: isLatest ? error : nil)
     }
 
     /// True while a change of the display is in progress.
