@@ -46,6 +46,45 @@ final class PresetPolicyTests: XCTestCase {
         XCTAssertFalse(preset.displays.contains { $0.key == externalKey && !$0.isEnabled })
     }
 
+    func testADisplayWithoutAKeyIsLeftOut() {
+        // macOS does not know the display that is off, and its key was never remembered: the preset cannot name it.
+        var now = displays(externalOn: false)
+        now[0].key = nil
+        XCTAssertEqual(PresetPolicy.current(named: "Laptop only", displays: now).displays.map(\.key), [builtinKey])
+    }
+
+    // MARK: Keys
+
+    func testTheKeyComesFromVendorModelAndSerialNumber() {
+        // The BenQ, whose serial number is 0.
+        XCTAssertEqual(DisplayKey.key(vendor: 2513, model: 32859, serial: 0), externalKey)
+    }
+
+    func testADisplayIDThatMacOSDoesNotKnowHasNoKey() {
+        XCTAssertNil(DisplayKey.key(vendor: .max, model: .max, serial: .max))
+    }
+
+    func testADisplayThatIsOffKeepsTheKeyItHadWhenItWasOn() {
+        // While the external display 3 is on, its key is remembered.
+        let keys = DisplayKey.remembered([:], reported: [1: builtinKey, 3: externalKey])
+        // It is turned off. If macOS then no longer knows it, the remembered key names it.
+        let reported = DisplayKey.key(vendor: .max, model: .max, serial: .max)
+        XCTAssertEqual(DisplayKey.key(reported: reported, remembered: keys[3]), externalKey)
+        // A display that is on, or that macOS still knows, has the key macOS reports.
+        XCTAssertEqual(DisplayKey.key(reported: "4268-41234-77", remembered: externalKey), "4268-41234-77")
+        XCTAssertNil(DisplayKey.key(reported: nil, remembered: nil))
+    }
+
+    func testARememberedKeyFollowsTheDisplayThatHasTheID() {
+        var keys = DisplayKey.remembered([:], reported: [3: externalKey])
+        // A report without a key keeps the remembered one.
+        keys = DisplayKey.remembered(keys, reported: [3: nil])
+        XCTAssertEqual(keys, [3: externalKey])
+        // Another display now has ID 3.
+        keys = DisplayKey.remembered(keys, reported: [3: "4268-41234-77"])
+        XCTAssertEqual(keys, [3: "4268-41234-77"])
+    }
+
     // MARK: Matching and applying
 
     func testALaptopOnlyPresetIsNotCurrentWhileTheExternalDisplayIsOn() {

@@ -33,7 +33,7 @@ extension DisplayManager {
         displays.map { display in
             let on = display.isEnabled
             return PresetPolicy.Display(
-                id: display.id, key: display.stableKey, name: display.name, isEnabled: on,
+                id: display.id, key: display.knownKey, name: display.name, isEnabled: on,
                 mode: on ? DisplayModes.current(display.id).map {
                     .init(width: $0.width, height: $0.height, pixelWidth: $0.pixelWidth, refreshRate: $0.refreshRate)
                 } : nil,

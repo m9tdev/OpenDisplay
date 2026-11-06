@@ -56,9 +56,24 @@ final class Display: Identifiable {
         self.isBuiltin = DisplayPolicy.isTrue(CGDisplayIsBuiltin(id))
     }
 
+    /// The key of the display from when it was last on, kept by `DisplayManager`: macOS may not know a display that is
+    /// off (see `DisplayKey`).
+    @ObservationIgnored var rememberedKey: String?
+
+    /// The key macOS reports for the display now, `nil` while it does not know the display.
+    var reportedKey: String? {
+        DisplayKey.key(vendor: CGDisplayVendorNumber(id), model: CGDisplayModelNumber(id), serial: CGDisplaySerialNumber(id))
+    }
+
+    /// Identifies the display across reconnects and restarts (the display ID can change), or `nil` while macOS does not
+    /// know the display and it has no remembered key.
+    var knownKey: String? {
+        DisplayKey.key(reported: reportedKey, remembered: rememberedKey)
+    }
+
     /// Identifies the external display across reconnects and restarts (the display ID can change).
     var stableKey: String {
-        "\(CGDisplayVendorNumber(id))-\(CGDisplayModelNumber(id))-\(CGDisplaySerialNumber(id))"
+        knownKey ?? "\(CGDisplayVendorNumber(id))-\(CGDisplayModelNumber(id))-\(CGDisplaySerialNumber(id))"
     }
 
     /// Identifies the display model, so all displays of one model share a calibration.
@@ -109,6 +124,18 @@ final class DisplayManager {
         set { UserDefaults.standard.set(newValue.sorted().map { Int($0) }, forKey: "builtinDisplays") }
     }
 
+    /// The key of each display, by ID, remembered from when the display was last on (see `Display.rememberedKey`). Kept
+    /// across app restarts, like `disabled`.
+    @ObservationIgnored var displayKeys: [CGDirectDisplayID: String] {
+        get {
+            let stored = UserDefaults.standard.dictionary(forKey: "displayKeys") as? [String: String] ?? [:]
+            return Dictionary(uniqueKeysWithValues: stored.compactMap { id, key in UInt32(id).map { ($0, key) } })
+        }
+        set {
+            UserDefaults.standard.set(Dictionary(uniqueKeysWithValues: newValue.map { (String($0), $1) }), forKey: "displayKeys")
+        }
+    }
+
     init() {
         refresh()
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
@@ -157,6 +184,11 @@ final class DisplayManager {
             builtinIDs, answers: Dictionary(uniqueKeysWithValues: active.map { ($0, CGDisplayIsBuiltin($0)) }))
         if builtins != builtinIDs { builtinIDs = builtins }
 
+        let keys = DisplayKey.remembered(displayKeys, reported: Dictionary(uniqueKeysWithValues: active.map {
+            ($0, DisplayKey.key(vendor: CGDisplayVendorNumber($0), model: CGDisplayModelNumber($0), serial: CGDisplaySerialNumber($0)))
+        }))
+        if keys != displayKeys { displayKeys = keys }
+
         var ids = online.filter { active.contains($0) || disabled[$0] != nil }
         ids += active.filter { !ids.contains($0) }
         ids += disabled.keys.filter { !ids.contains($0) }
@@ -166,6 +198,7 @@ final class DisplayManager {
         var next: [Display] = []
         for id in ids {
             let display = byID[id] ?? Display(id: id, name: disabled[id] ?? Self.name(of: id))
+            display.rememberedKey = keys[id]
             if changing.contains(id) {
                 next.append(display)
                 continue

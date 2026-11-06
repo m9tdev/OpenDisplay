@@ -1,7 +1,7 @@
 /// A saved display setup, for example "Desk" or "Laptop only".
 public struct Preset: Codable, Equatable, Sendable {
     public struct DisplayState: Codable, Equatable, Sendable {
-        /// The display's stable key (vendor, model and serial number; see `PresetPolicy.Display.key`).
+        /// The stable key of the display (see `DisplayKey`).
         public var key: String
         public var name: String
         public var isEnabled: Bool
@@ -58,8 +58,9 @@ public enum PresetPolicy {
     public struct Display: Equatable, Sendable {
         /// `CGDirectDisplayID`.
         public var id: UInt32
-        /// The stable key of the display.
-        public var key: String
+        /// The stable key of the display (see `DisplayKey`). `nil` when it is not known: such a display is left out of
+        /// presets.
+        public var key: String?
         public var name: String
         public var isEnabled: Bool
         /// The current mode, `nil` when macOS does not report one (for example while the display is off).
@@ -68,7 +69,7 @@ public enum PresetPolicy {
         public var rotation: Int
         public var brightness: Double?
 
-        public init(id: UInt32, key: String, name: String, isEnabled: Bool, mode: Mode?, isMain: Bool = false,
+        public init(id: UInt32, key: String?, name: String, isEnabled: Bool, mode: Mode?, isMain: Bool = false,
                     rotation: Int = 0, brightness: Double? = nil) {
             self.id = id
             self.key = key
@@ -83,16 +84,18 @@ public enum PresetPolicy {
 
     /// The current setup of `displays`, as a preset. A display that is off is saved as off, so the preset turns it
     /// off. Its mode is not saved: macOS does not report one, and turning a display off does not use it. A display
-    /// that is on but reports no mode is left out, so the preset does not change it.
+    /// that is on but reports no mode is left out, so the preset does not change it, and so is a display without a
+    /// key.
     public static func current(named name: String, displays: [Display]) -> Preset {
         Preset(name: name, displays: displays.compactMap { display in
+            guard let key = display.key else { return nil }
             guard display.isEnabled else {
-                return .init(key: display.key, name: display.name, isEnabled: false, isMain: false,
+                return .init(key: key, name: display.name, isEnabled: false, isMain: false,
                              width: 0, height: 0, pixelWidth: 0, refreshRate: 0, rotation: 0)
             }
             guard let mode = display.mode else { return nil }
             return .init(
-                key: display.key, name: display.name, isEnabled: true, isMain: display.isMain,
+                key: key, name: display.name, isEnabled: true, isMain: display.isMain,
                 width: mode.width, height: mode.height, pixelWidth: mode.pixelWidth, refreshRate: mode.refreshRate,
                 rotation: display.rotation, brightness: display.brightness
             )
