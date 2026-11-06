@@ -128,6 +128,38 @@ final class PresetPolicyTests: XCTestCase {
         XCTAssertFalse(PresetPolicy.matches(presets[0], displays: displays(externalOn: false)))
     }
 
+    // MARK: Identical displays
+
+    /// Two monitors of the same model whose serial number is 0: they have the same key. Monitor 3 is on, 4 is off.
+    func twins(firstOn: Bool = true) -> [PresetPolicy.Display] {
+        [
+            .init(id: 3, key: externalKey, name: "BenQ", isEnabled: firstOn, mode: firstOn ? fourK : nil, isMain: firstOn),
+            .init(id: 4, key: externalKey, name: "BenQ", isEnabled: !firstOn, mode: firstOn ? nil : fourK, isMain: !firstOn),
+        ]
+    }
+
+    func testTwoDisplaysWithTheSameKeyEachGetTheirOwnEntry() {
+        let preset = PresetPolicy.current(named: "One on", displays: twins())
+        let targets = PresetPolicy.targets(of: preset, displays: twins())
+        XCTAssertEqual(targets.map(\.id).sorted(), [3, 4])
+        XCTAssertEqual(targets.first { $0.id == 3 }?.state.isEnabled, true)
+        XCTAssertEqual(targets.first { $0.id == 4 }?.state.isEnabled, false)
+    }
+
+    func testAnEntryGoesToTheDisplayItWasSavedFrom() {
+        let preset = PresetPolicy.current(named: "One on", displays: twins())
+        // The same displays, listed in the other order.
+        let targets = PresetPolicy.targets(of: preset, displays: twins().reversed())
+        XCTAssertEqual(targets.first { $0.id == 3 }?.state.isEnabled, true)
+        XCTAssertEqual(targets.first { $0.id == 4 }?.state.isEnabled, false)
+    }
+
+    func testAPresetDoesNotMatchWhenTheOtherOfTwoIdenticalDisplaysIsOn() {
+        let preset = PresetPolicy.current(named: "One on", displays: twins())
+        XCTAssertTrue(PresetPolicy.matches(preset, displays: twins()))
+        XCTAssertFalse(PresetPolicy.matches(preset, displays: twins(firstOn: false)))
+    }
+
     // MARK: Saved format
 
     func testPresetsSavedByEarlierVersionsStillLoad() throws {
