@@ -1,4 +1,5 @@
 import AppKit
+import DisplayPolicy
 import Observation
 
 /// The menu bar item. Uses a plain NSMenu so it looks like the system Wi-Fi and Sound menus.
@@ -13,7 +14,8 @@ import Observation
 /// 2. While it is open, items are never added, removed, or hidden. Rows can only collapse
 ///    (for example the sliders of a display that turns off), or expand inside a `RowStackView`.
 /// 3. If the menu needs new rows while it is open (a display turns on, an error appears),
-///    it closes and opens again with new items.
+///    it closes and opens again with new items. Not while a mouse button is pressed (the user drags a slider):
+///    then it waits until the button is released (see `MenuReopen`).
 @MainActor
 final class StatusMenu: NSObject, NSMenuDelegate {
     private let manager: DisplayManager
@@ -125,7 +127,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     // during the display change. In all these cases, the menu opens again, with new items, at the icon.
 
     /// Set when a display turned on or off while the menu was open. Expires after a few seconds.
-    private var reopenWanted: Date?
+    private var reopen = MenuReopen()
+
+    /// The clock for `reopen`: seconds since the Mac started, so it only goes forward.
+    private static var now: Double { ProcessInfo.processInfo.systemUptime }
 
     private func after(_ delay: TimeInterval, _ action: @escaping @MainActor (StatusMenu) -> Void) {
         // A timer, not a main queue block: see the `--open-menu` note.
@@ -144,21 +149,23 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     }
 
     private func reopenIfWanted() {
-        guard let wanted = reopenWanted else { return }
-        guard Date().timeIntervalSince(wanted) < 6 else {
-            reopenWanted = nil
+        let isOpen = MenuState.isOpen
+        // A pressed button means the user is in the middle of something in the menu, such as a slider drag.
+        let action = reopen.check(at: Self.now, isOpen: isOpen,
+                                  isOutdated: isOpen && (rowsMissing() || iconScreen() != menuScreen),
+                                  closedByUser: closedByUser, mouseIsDown: NSEvent.pressedMouseButtons != 0)
+        switch action {
+        case .nothing:
             return
-        }
-        if MenuState.isOpen {
-            guard rowsMissing() || iconScreen() != menuScreen else { return }
+        case .checkAgainLater:
+            after(0.5) { $0.reopenIfWanted() }
+        case .closeAndOpen:
             closingForReopen = true
             menu.cancelTracking()
-        } else if closedByUser {
-            reopenWanted = nil
-            return
+            openAgain()
+        case .open:
+            openAgain()
         }
-        reopenWanted = nil
-        openAgain()
     }
 
     /// Opens the menu. The icon can still be moving between screens, or a display can still be waking up,
@@ -212,7 +219,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         if !MenuState.isOpen {
             if needed != builtRows { buildItems(needed) }
         } else if rowsMissing() || enabledDisplays() != menuEnabledDisplays {
-            reopenWanted = Date()
+            reopen.want(at: Self.now)
             menuEnabledDisplays = enabledDisplays()
             // Wait a moment, so the display change can start first.
             after(0.5) { $0.reopenIfWanted() }

@@ -40,6 +40,12 @@ public struct MenuReopen: Equatable, Sendable {
     public mutating func check(at time: Double, isOpen: Bool, isOutdated: Bool, closedByUser: Bool,
                                mouseIsDown: Bool) -> Action {
         guard let wantedSince else { return .nothing }
+        // Closing the menu now would end the drag, and a resolution slider applies its choice only on mouse up.
+        // So wait for the drag to end; the wish starts again then, so a long drag does not let it expire.
+        if isOpen, isOutdated, mouseIsDown {
+            self.wantedSince = time
+            return .checkAgainLater
+        }
         guard time - wantedSince < Self.lifetime else {
             self.wantedSince = nil
             return .nothing
