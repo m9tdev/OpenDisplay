@@ -231,7 +231,13 @@ final class DisplayManager {
         if keys != storedKeys { displayKeys = keys }
         let storedSettingsKeys = settingsKeys
         let keysForSettings = DisplayKey.settingsKeys(keys, previous: storedSettingsKeys)
-        if keysForSettings != storedSettingsKeys { settingsKeys = keysForSettings }
+        if keysForSettings != storedSettingsKeys {
+            settingsKeys = keysForSettings
+            // A twin that just got its own key keeps the settings saved under the shared key.
+            let synced = DisplayKey.inheriting(syncedKeys, previous: storedSettingsKeys, current: keysForSettings)
+            if synced != syncedKeys { syncedKeys = synced }
+            MenuExpansion.shared.inherit(previous: storedSettingsKeys, current: keysForSettings)
+        }
 
         let ddc = DDCDiscovery.services(for: ids.filter { active.contains($0) })
 
