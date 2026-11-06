@@ -56,11 +56,12 @@ extension DisplayManager {
     /// Applies a preset. Displays that are not in the preset stay as they are.
     func apply(_ preset: Preset) {
         guard let configure = PrivateAPI.configureDisplayEnabled else { return }
-        let targets = PresetPolicy.targets(of: preset, displays: presetDisplays)
-        guard targets.contains(where: { $0.state.isEnabled }) else {
-            lastError = "This preset turns off all displays."
+        let plan = PresetPolicy.plan(preset, displays: presetDisplays)
+        if let refusal = plan.refusal {
+            lastError = refusal
             return
         }
+        let targets = plan.targets
         // After the preset, a physical display must be on (a virtual display does not count, see `DisplayPolicy`).
         let changes = PresetPolicy.changes(targets)
         let turnsOn = changes.turnsOn, turnsOff = changes.turnsOff
@@ -75,15 +76,16 @@ extension DisplayManager {
             \(allowed ? "allowed" : "refused", privacy: .public); after: \(Self.describe(after), privacy: .public)
             """)
         guard allowed else {
-            lastError = "This preset turns off all displays."
+            lastError = PresetPolicy.turnsOffAllDisplays(notConnected: plan.notConnected)
             return
         }
         lastError = nil
         let steps = targets
         let builtins = builtinIDs
+        let skipped = plan.skipped
 
         configQueue.async {
-            var errors: [String] = []
+            var errors = skipped
             // Turn displays on first, so there is always a display that is on.
             // From the list: CGDisplayIsActive returns -1 for a display that is off (see `DisplayPolicy.states`).
             for (id, state) in steps where state.isEnabled && !Self.activeDisplays().contains(id) {
@@ -132,7 +134,7 @@ extension DisplayManager {
                         disabled[id] = state.name
                     }
                     self.disabled = disabled
-                    self.lastError = errors.first
+                    self.lastError = PresetPolicy.report(errors)
                     self.refresh()
                     // Brightness last: a display that just turned on needs a moment before it accepts DDC.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
