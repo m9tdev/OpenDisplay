@@ -92,6 +92,47 @@ final class DisplayChangesTests: XCTestCase {
         XCTAssertFalse(changes.isChanging(2))
     }
 
+    // MARK: Errors
+
+    func testTheErrorOfTheLatestChangeIsShown() {
+        var changes = DisplayChanges()
+        let off = changes.begin(2)
+        XCTAssertEqual(changes.end(off, error: "Could not turn off"),
+                       DisplayChanges.Outcome(isLatest: true, shownError: "Could not turn off"))
+    }
+
+    func testAChangeThatWorkedShowsNoError() {
+        var changes = DisplayChanges()
+        let off = changes.begin(2)
+        XCTAssertEqual(changes.end(off, error: nil), DisplayChanges.Outcome(isLatest: true))
+    }
+
+    func testTheErrorOfAnEarlierChangeIsNotShown() {
+        var changes = DisplayChanges()
+        let off = changes.begin(2)
+        let on = changes.begin(2)
+        // The later change sets what the app shows, and it may work.
+        XCTAssertEqual(changes.end(off, error: "Could not turn off"), DisplayChanges.Outcome(isLatest: false))
+        XCTAssertEqual(changes.end(on, error: nil), DisplayChanges.Outcome(isLatest: true))
+    }
+
+    func testTheErrorOfTheLaterChangeIsShownAfterAnEarlierOneFailed() {
+        var changes = DisplayChanges()
+        let off = changes.begin(2)
+        let on = changes.begin(2)
+        _ = changes.end(off, error: "Could not turn off")
+        XCTAssertEqual(changes.end(on, error: "Could not turn on"),
+                       DisplayChanges.Outcome(isLatest: true, shownError: "Could not turn on"))
+    }
+
+    func testTheErrorOfAnotherDisplaysChangeIsShown() {
+        var changes = DisplayChanges()
+        let first = changes.begin(2)
+        _ = changes.begin(3)
+        XCTAssertEqual(changes.end(first, error: "Could not turn off"),
+                       DisplayChanges.Outcome(isLatest: true, shownError: "Could not turn off"))
+    }
+
     // MARK: A refresh while a display turns off
 
     func testADisplayTurningOffStaysListedWhenMacOSNoLongerListsIt() {

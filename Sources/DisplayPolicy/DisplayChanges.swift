@@ -32,6 +32,25 @@ public struct DisplayChanges: Equatable, Sendable {
         return latest[id] == change.number
     }
 
+    /// What the app does with the result of a change that ended.
+    public struct Outcome: Equatable, Sendable {
+        /// The change is the display's latest: after an error, the app sets the state it shows back.
+        public var isLatest: Bool
+        /// The error to show. nil when the change worked, or when a later change of the display sets what the app
+        /// shows: then its error is only logged, so it does not replace the result of the later change.
+        public var shownError: String?
+
+        public init(isLatest: Bool, shownError: String? = nil) {
+            self.isLatest = isLatest
+            self.shownError = shownError
+        }
+    }
+
+    /// Ends a change that failed with `error`, or worked (`nil`), as `end(_:)` does.
+    public mutating func end(_ change: Change, error: String?) -> Outcome {
+        Outcome(isLatest: end(change), shownError: error)
+    }
+
     /// True while a change of the display is in progress.
     public func isChanging(_ id: UInt32) -> Bool {
         pending[id] != nil
