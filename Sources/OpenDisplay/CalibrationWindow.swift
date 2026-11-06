@@ -95,7 +95,7 @@ final class CalibrationSession {
         // From here, only the calibration changes the brightness (see `CalibrationPolicy`).
         manager.isCalibrating = true
         manager.builtinChangedWhileCalibrating = { [weak self] value in
-            guard let self, let level = self.builtinWatch.reported(value) else { return }
+            guard let self, let level = self.builtinWatch.reported(value, at: ProcessInfo.processInfo.systemUptime) else { return }
             // macOS changed it, for example with the brightness keys when the app does not catch them.
             _ = PrivateAPI.setBrightness?(self.builtin.id, level)
         }

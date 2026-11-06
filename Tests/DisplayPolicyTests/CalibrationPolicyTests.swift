@@ -44,25 +44,25 @@ final class CalibrationPolicyTests: XCTestCase {
     func testAKeyPressIsUndone() {
         var watch = CalibrationBuiltinWatch()
         watch.calibrationSet(0.4)
-        XCTAssertEqual(watch.reported(0.4), nil)
-        XCTAssertEqual(watch.reported(0.4 + 1.0 / 16), 0.4)
+        XCTAssertEqual(watch.reported(0.4, at: 0), nil)
+        XCTAssertEqual(watch.reported(0.4 + 1.0 / 16, at: 0), 0.4)
     }
 
     func testTheSameKeyPressedAgainIsUndoneAgain() {
         var watch = CalibrationBuiltinWatch()
         watch.calibrationSet(0.4)
-        XCTAssertEqual(watch.reported(0.4 + 1.0 / 16), 0.4)
-        XCTAssertEqual(watch.reported(0.4), nil)
-        XCTAssertEqual(watch.reported(0.4 + 1.0 / 16), 0.4)
+        XCTAssertEqual(watch.reported(0.4 + 1.0 / 16, at: 0), 0.4)
+        XCTAssertEqual(watch.reported(0.4, at: 0), nil)
+        XCTAssertEqual(watch.reported(0.4 + 1.0 / 16, at: 0), 0.4)
     }
 
     func testALevelMacOSReportsOtherwiseIsSetAgainOnce() {
         // macOS clamps the lowest step's level, and reports each set with its own value.
         var watch = CalibrationBuiltinWatch()
         watch.calibrationSet(0.01)
-        XCTAssertEqual(watch.reported(0.03), 0.01)
-        XCTAssertEqual(watch.reported(0.03), nil)
-        XCTAssertEqual(watch.reported(0.03), nil)
+        XCTAssertEqual(watch.reported(0.03, at: 0), 0.01)
+        XCTAssertEqual(watch.reported(0.03, at: 0), nil)
+        XCTAssertEqual(watch.reported(0.03, at: 0), nil)
     }
 
     func testSetsAgainStopWhenReportsNeverSettle() {
@@ -71,8 +71,8 @@ final class CalibrationPolicyTests: XCTestCase {
         watch.calibrationSet(0.4)
         var sets = 0
         for _ in 0..<1000 {
-            if watch.reported(0.5) != nil { sets += 1 }
-            _ = watch.reported(0.4)
+            if watch.reported(0.5, at: 0) != nil { sets += 1 }
+            _ = watch.reported(0.4, at: 0)
         }
         XCTAssertLessThanOrEqual(sets, CalibrationBuiltinWatch.maximumSetsAgain)
     }
@@ -81,11 +81,53 @@ final class CalibrationPolicyTests: XCTestCase {
         var watch = CalibrationBuiltinWatch()
         watch.calibrationSet(0.4)
         for _ in 0..<1000 {
-            _ = watch.reported(0.5)
-            _ = watch.reported(0.4)
+            _ = watch.reported(0.5, at: 0)
+            _ = watch.reported(0.4, at: 0)
         }
         watch.calibrationSet(0.6)
-        XCTAssertEqual(watch.reported(0.5), 0.6)
+        XCTAssertEqual(watch.reported(0.5, at: 0), 0.6)
+    }
+
+    func testKeyPressesSpacedOutOnOneLevelAreAllUndone() {
+        var watch = CalibrationBuiltinWatch()
+        watch.calibrationSet(0.4)
+        for press in 0..<9 {
+            let time = Double(press) * 2
+            XCTAssertEqual(watch.reported(0.4 + 1.0 / 16, at: time), 0.4, "key press \(press + 1)")
+            // macOS reports the set again.
+            XCTAssertEqual(watch.reported(0.4, at: time + 0.05), nil)
+        }
+    }
+
+    func testKeyPressesSpacedOutAreAllUndoneWhenMacOSRoundsTheLevel() {
+        var watch = CalibrationBuiltinWatch()
+        watch.calibrationSet(0.01)
+        for press in 0..<9 {
+            let time = Double(press) * 2
+            XCTAssertEqual(watch.reported(0.01 + 1.0 / 16, at: time), 0.01, "key press \(press + 1)")
+            // macOS reports the set again with a rounded value, which is set again once.
+            _ = watch.reported(0.03, at: time + 0.05)
+            XCTAssertEqual(watch.reported(0.03, at: time + 0.1), nil)
+        }
+    }
+
+    func testTheSameKeyAgainIsUndoneIfMacOSDidNotReportTheSetAgain() {
+        var watch = CalibrationBuiltinWatch()
+        watch.calibrationSet(0.4)
+        XCTAssertEqual(watch.reported(0.4 + 1.0 / 16, at: 0), 0.4)
+        XCTAssertEqual(watch.reported(0.4 + 1.0 / 16, at: 2), 0.4)
+    }
+
+    func testReportsThatNeverSettleStopAlsoOverTime() {
+        // Reports a millisecond apart, for 10 seconds: the limit holds as long as they come quickly.
+        var watch = CalibrationBuiltinWatch()
+        watch.calibrationSet(0.4)
+        var sets = 0
+        for step in 0..<10_000 {
+            if watch.reported(0.5, at: Double(step) / 1000) != nil { sets += 1 }
+            _ = watch.reported(0.4, at: Double(step) / 1000)
+        }
+        XCTAssertLessThanOrEqual(sets, CalibrationBuiltinWatch.maximumSetsAgain)
     }
 
     // MARK: Record

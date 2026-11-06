@@ -60,7 +60,8 @@ public struct CalibrationBuiltinWatch: Equatable, Sendable {
     }
 
     /// macOS reports the built-in brightness `value`. Returns the level to set again, or nil.
-    public mutating func reported(_ value: Float) -> Float? {
+    /// - Parameter time: Now, in seconds (any clock that only goes forward).
+    public mutating func reported(_ value: Float, at time: Double) -> Float? {
         guard let level, CalibrationPolicy.mustSetBuiltinAgain(notified: value, calibrationLevel: level) else {
             answered = nil
             return nil
