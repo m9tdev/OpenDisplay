@@ -43,14 +43,14 @@ extension DisplayManager {
         }
     }
 
-    /// The current setup of all known displays.
+    /// The current setup of all known displays. A display that is off is saved as off.
     func currentPreset(named name: String) -> Preset {
-        PresetPolicy.current(named: name, displays: presetDisplays, saved: PresetStore.shared.presets)
+        PresetPolicy.current(named: name, displays: presetDisplays)
     }
 
     /// True when the displays match the preset now. Brightness and names do not count.
     func matches(_ preset: Preset) -> Bool {
-        PresetPolicy.matches(preset, displays: presetDisplays, saved: PresetStore.shared.presets)
+        PresetPolicy.matches(preset, displays: presetDisplays)
     }
 
     /// Applies a preset. Displays that are not in the preset stay as they are.

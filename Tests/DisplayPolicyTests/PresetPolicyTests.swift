@@ -22,7 +22,7 @@ final class PresetPolicyTests: XCTestCase {
 
     /// Saves the current setup, like Settings: a preset with the same name is replaced.
     func save(_ name: String, _ displays: [PresetPolicy.Display], to presets: inout [Preset]) {
-        let preset = PresetPolicy.current(named: name, displays: displays, saved: presets)
+        let preset = PresetPolicy.current(named: name, displays: displays)
         presets = presets.filter { $0.name != name } + [preset]
     }
 
@@ -30,7 +30,7 @@ final class PresetPolicyTests: XCTestCase {
 
     func testADisplayThatIsOffIsSavedAsOffInTheFirstPreset() {
         // First use: the external display was turned off from the menu, and no preset exists yet.
-        let preset = PresetPolicy.current(named: "Laptop only", displays: displays(externalOn: false), saved: [])
+        let preset = PresetPolicy.current(named: "Laptop only", displays: displays(externalOn: false))
         XCTAssertEqual(preset.displays.map(\.key), [externalKey, builtinKey])
         XCTAssertEqual(preset.displays.first { $0.key == externalKey }?.isEnabled, false)
         XCTAssertEqual(preset.displays.first { $0.key == builtinKey }?.isEnabled, true)
@@ -42,7 +42,7 @@ final class PresetPolicyTests: XCTestCase {
         save("Desk", displays(externalOn: true), to: &presets)
         var now = displays(externalOn: true)
         now[0].mode = nil
-        let preset = PresetPolicy.current(named: "Now", displays: now, saved: presets)
+        let preset = PresetPolicy.current(named: "Now", displays: now)
         XCTAssertFalse(preset.displays.contains { $0.key == externalKey && !$0.isEnabled })
     }
 
@@ -53,7 +53,7 @@ final class PresetPolicyTests: XCTestCase {
         save("Laptop only", displays(externalOn: false), to: &presets)
         // Later the external display is on again; the built-in display stays the main display.
         let now = displays(externalOn: true, builtinIsMain: true)
-        XCTAssertFalse(PresetPolicy.matches(presets[0], displays: now, saved: presets))
+        XCTAssertFalse(PresetPolicy.matches(presets[0], displays: now))
     }
 
     func testApplyingALaptopOnlyPresetTurnsTheExternalDisplayOff() {
@@ -71,23 +71,22 @@ final class PresetPolicyTests: XCTestCase {
         save("Desk", displays(externalOn: true, externalMode: fourK), to: &presets)
         // "Laptop" is applied: the external display turns off, nothing else changes.
         let laptopPreset = presets.first { $0.name == "Laptop" }!
-        XCTAssertTrue(PresetPolicy.matches(laptopPreset, displays: displays(externalOn: false), saved: presets))
-        XCTAssertFalse(PresetPolicy.matches(presets.first { $0.name == "Desk" }!, displays: displays(externalOn: false),
-                                            saved: presets))
+        XCTAssertTrue(PresetPolicy.matches(laptopPreset, displays: displays(externalOn: false)))
+        XCTAssertFalse(PresetPolicy.matches(presets.first { $0.name == "Desk" }!, displays: displays(externalOn: false)))
     }
 
     func testAPresetThatTurnsADisplayOffIsCurrentWithNoOtherPreset() {
         var presets: [Preset] = []
         save("Laptop only", displays(externalOn: false), to: &presets)
-        XCTAssertTrue(PresetPolicy.matches(presets[0], displays: displays(externalOn: false), saved: presets))
+        XCTAssertTrue(PresetPolicy.matches(presets[0], displays: displays(externalOn: false)))
     }
 
     func testAPresetWithADisplayOnMatchesOnlyItsMode() {
         var presets: [Preset] = []
         save("Desk", displays(externalOn: true, externalMode: qhd), to: &presets)
-        XCTAssertTrue(PresetPolicy.matches(presets[0], displays: displays(externalOn: true, externalMode: qhd), saved: presets))
-        XCTAssertFalse(PresetPolicy.matches(presets[0], displays: displays(externalOn: true, externalMode: fourK), saved: presets))
-        XCTAssertFalse(PresetPolicy.matches(presets[0], displays: displays(externalOn: false), saved: presets))
+        XCTAssertTrue(PresetPolicy.matches(presets[0], displays: displays(externalOn: true, externalMode: qhd)))
+        XCTAssertFalse(PresetPolicy.matches(presets[0], displays: displays(externalOn: true, externalMode: fourK)))
+        XCTAssertFalse(PresetPolicy.matches(presets[0], displays: displays(externalOn: false)))
     }
 
     // MARK: Saved format
@@ -100,5 +99,7 @@ final class PresetPolicyTests: XCTestCase {
         let presets = try JSONDecoder().decode([Preset].self, from: Data(json.utf8))
         XCTAssertEqual(presets.first?.displays.first?.key, externalKey)
         XCTAssertEqual(presets.first?.displays.first?.isEnabled, false)
+        // Its saved mode does not count while the display is off.
+        XCTAssertTrue(PresetPolicy.matches(presets[0], displays: displays(externalOn: false)))
     }
 }

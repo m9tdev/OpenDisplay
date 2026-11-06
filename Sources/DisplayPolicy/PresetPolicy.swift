@@ -81,17 +81,16 @@ public enum PresetPolicy {
         }
     }
 
-    /// The current setup of `displays`, as a preset. `saved`: the presets saved so far. A display that is off keeps
-    /// the mode it had in the last saved preset that has it.
-    public static func current(named name: String, displays: [Display], saved: [Preset]) -> Preset {
-        let old = saved.flatMap(\.displays)
-        return Preset(name: name, displays: displays.compactMap { display in
-            guard display.isEnabled, let mode = display.mode else {
-                guard var state = old.last(where: { $0.key == display.key }) else { return nil }
-                state.isEnabled = false
-                state.isMain = false
-                return state
+    /// The current setup of `displays`, as a preset. A display that is off is saved as off, so the preset turns it
+    /// off. Its mode is not saved: macOS does not report one, and turning a display off does not use it. A display
+    /// that is on but reports no mode is left out, so the preset does not change it.
+    public static func current(named name: String, displays: [Display]) -> Preset {
+        Preset(name: name, displays: displays.compactMap { display in
+            guard display.isEnabled else {
+                return .init(key: display.key, name: display.name, isEnabled: false, isMain: false,
+                             width: 0, height: 0, pixelWidth: 0, refreshRate: 0, rotation: 0)
             }
+            guard let mode = display.mode else { return nil }
             return .init(
                 key: display.key, name: display.name, isEnabled: true, isMain: display.isMain,
                 width: mode.width, height: mode.height, pixelWidth: mode.pixelWidth, refreshRate: mode.refreshRate,
@@ -100,11 +99,14 @@ public enum PresetPolicy {
         })
     }
 
-    /// True when `displays` match the preset now. Brightness and names do not count.
-    public static func matches(_ preset: Preset, displays: [Display], saved: [Preset]) -> Bool {
-        let current = current(named: "", displays: displays, saved: saved)
+    /// True when `displays` match the preset now: each display in the preset is there, on or off as in the preset,
+    /// and a display that is on has its mode, rotation and main display. Brightness and names do not count, nor the
+    /// mode saved for a display that is off (presets saved by earlier versions have one).
+    public static func matches(_ preset: Preset, displays: [Display]) -> Bool {
+        let current = current(named: "", displays: displays)
         return preset.displays.allSatisfy { state in
             current.displays.contains { now in
+                guard state.isEnabled else { return now.key == state.key && !now.isEnabled }
                 var a = now, b = state
                 a.name = ""; b.name = ""; a.brightness = nil; b.brightness = nil
                 return a == b
