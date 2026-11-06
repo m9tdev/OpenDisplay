@@ -51,6 +51,8 @@ final class CalibrationSession {
     @ObservationIgnored private var xdr: CGDirectDisplayID?
     /// The built-in level the calibration set last, to set it again if macOS changes it.
     @ObservationIgnored private var builtinWatch = CalibrationBuiltinWatch()
+    /// The pending read of the built-in brightness after reports away from the level stop (see
+    /// `CalibrationBuiltinWatch.settleCheckTime`). Each report schedules it again; `finish` cancels it.
     @ObservationIgnored private var settleCheck: DispatchWorkItem?
 
     private static var current: CalibrationSession?

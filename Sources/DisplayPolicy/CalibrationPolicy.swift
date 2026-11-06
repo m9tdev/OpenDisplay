@@ -37,8 +37,10 @@ public enum CalibrationPolicy {
     }
 }
 
-/// Keeps the built-in display at the calibration's level when macOS changes it, without a loop: if macOS rounds or
-/// clamps the level it reports, and reports each set, each set again would bring another report.
+/// Keeps the built-in display at the calibration's level when macOS changes it, without a fast loop: if macOS rounds
+/// or clamps the level it reports, and reports each set, each set again would bring another report. If macOS reported
+/// each set more than a second late and never with the level, it would go on at about one set a second until the
+/// calibration sets another level or ends.
 public struct CalibrationBuiltinWatch: Equatable, Sendable {
     /// The level the calibration set last, or nil if it set none yet.
     public private(set) var level: Float?
@@ -59,9 +61,10 @@ public struct CalibrationBuiltinWatch: Equatable, Sendable {
     private var lastAway: Double?
     /// True from a report away from the level until the settle check.
     private var settleCheckDue = false
-    /// Sets again from settle checks, back to 0 like `setsAgain` except for the quiet time.
+    /// Sets again from settle checks. Back to 0 when the calibration sets a level, when a report away from the level
+    /// comes more than `answerTime` after the last set again, and when a settle check finds the level.
     private var settlesAgain = 0
-    /// The value the last settle check set again for.
+    /// The value the last settle check set again for, reset with `settlesAgain`.
     private var settledValue: Float?
 
     /// The most sets again in a row from reports, and also from settle checks.
@@ -93,6 +96,12 @@ public struct CalibrationBuiltinWatch: Equatable, Sendable {
             answered = nil
             setsAgain = 0
         }
+        // Not an answer to a set again (those come soon after it): a new change, such as another held key, that the
+        // settle check must put back even if it ends on the value of the last one.
+        if lastSet.map({ time - $0 > Self.answerTime }) ?? true {
+            settlesAgain = 0
+            settledValue = nil
+        }
         lastAway = time
         settleCheckDue = true
         if let answered, time - answered.time <= Self.answerTime,
@@ -111,6 +120,8 @@ public struct CalibrationBuiltinWatch: Equatable, Sendable {
 
     /// The built-in brightness `value`, read once after `settleCheckTime`. Returns the level to set again, or nil.
     public mutating func settled(_ value: Float, at time: Double) -> Float? {
+        // Too early, so a report could still come: no check, and the check stays due. The app checks a little after
+        // `settleCheckTime`, and each report schedules the check again, so it does not need to be scheduled here.
         guard let level, let lastAway, time - lastAway > Self.quietTime else { return nil }
         settleCheckDue = false
         guard CalibrationPolicy.mustSetBuiltinAgain(notified: value, calibrationLevel: level) else {
