@@ -31,8 +31,12 @@ final class Display: Identifiable {
     var supportsVolume = false
 
     @ObservationIgnored var ddc: DDCService?
-    @ObservationIgnored var ddcMax: UInt16 = 100
-    @ObservationIgnored var volumeMax: UInt16 = 100
+    /// The DDC brightness, volume and mute of the monitor: their maximums and the reads in flight.
+    @ObservationIgnored var brightnessDDC = DDCValue()
+    @ObservationIgnored var volumeDDC = DDCValue()
+    @ObservationIgnored var muteDDC = DDCValue()
+    /// The monitor's DDC brightness maximum, or the usual one until a read tells it.
+    var ddcMax: UInt16 { brightnessDDC.maximum ?? DDCValue.assumedMaximum }
     /// Software dimming: 1 is the normal image.
     @ObservationIgnored var dimming: Double = 1
     /// `stableKey`, from the last time the display was on: macOS has no identity for a display that went away.
@@ -315,13 +319,16 @@ final class DisplayManager {
             display.brightness = display.brightnessControl.slider(level: nil, dimming: display.dimming)
             return
         }
+        let read = display.brightnessDDC.startRead()
         ddc.readLater(vcp: VCP.brightness) { [weak display] result in
             MainActor.assumeIsolated {
                 guard let display else { return }
-                if let result, result.max > 0 {
-                    display.ddcMax = result.max
-                    let level = Double(result.current) / Double(result.max)
-                    display.brightness = BrightnessControl.external(display.curve).slider(level: level, dimming: display.dimming)
+                let (answer, write) = display.brightnessDDC.finish(read, current: result?.current, maximum: result?.max)
+                if let write { display.ddc?.setLater(vcp: VCP.brightness, value: write) }
+                if case .show(_, let level?) = answer {
+                    display.brightness = BrightnessControl.external(display.curve).slider(
+                        readLevel: level, dimming: display.dimming, shown: display.brightness,
+                        levelStep: 1 / Double(display.ddcMax))
                 } else {
                     // Writes often work when reads do not, so still allow control.
                     display.brightness = 0.5
@@ -355,7 +362,10 @@ final class DisplayManager {
             lastBuiltinBacklight = Float(level)
             _ = PrivateAPI.setBrightness?(display.id, Float(level))
         } else {
-            display.ddc?.setLater(vcp: VCP.brightness, value: UInt16((level * Double(display.ddcMax)).rounded()))
+            // nil: the write waits for the read in flight, which tells the monitor's maximum.
+            if let raw = display.brightnessDDC.set(level) {
+                display.ddc?.setLater(vcp: VCP.brightness, value: raw)
+            }
         }
     }
 
@@ -562,18 +572,24 @@ final class DisplayManager {
     /// External display speakers only: macOS cannot change their volume, but most external displays accept it over DDC.
     func readVolume(_ display: Display) {
         guard let ddc = display.ddc else { return }
+        let volumeRead = display.volumeDDC.startRead()
         ddc.readLater(vcp: VCP.volume) { [weak display] result in
             MainActor.assumeIsolated {
-                guard let display, let result, result.max > 0 else { return }
-                display.volumeMax = result.max
-                display.volume = Double(result.current) / Double(result.max)
+                guard let display else { return }
+                let (answer, write) = display.volumeDDC.finish(volumeRead, current: result?.current, maximum: result?.max)
+                if let write { display.ddc?.setLater(vcp: VCP.volume, value: write) }
+                guard case .show(_, let level?) = answer else { return }
+                display.volume = level
                 display.supportsVolume = true
             }
         }
+        let muteRead = display.muteDDC.startRead()
         ddc.readLater(vcp: VCP.mute) { [weak display] result in
             MainActor.assumeIsolated {
-                guard let display, let result else { return }
-                display.isMuted = result.current == 1
+                guard let display else { return }
+                guard case .show(let current, _) = display.muteDDC.finish(muteRead, current: result?.current, maximum: result?.max).answer
+                else { return }
+                display.isMuted = current == 1
             }
         }
     }
@@ -581,7 +597,10 @@ final class DisplayManager {
     func setVolume(_ display: Display, to value: Double) {
         let value = min(max(value, 0), 1)
         display.volume = value
-        display.ddc?.setLater(vcp: VCP.volume, value: UInt16((value * Double(display.volumeMax)).rounded()))
+        // nil: the write waits for the read in flight, which tells the monitor's maximum.
+        if let raw = display.volumeDDC.set(value) {
+            display.ddc?.setLater(vcp: VCP.volume, value: raw)
+        }
         // Like the system volume: moving the slider ends mute.
         if display.isMuted {
             setMuted(display, false)
@@ -590,6 +609,7 @@ final class DisplayManager {
 
     func setMuted(_ display: Display, _ muted: Bool) {
         display.isMuted = muted
+        display.muteDDC.setRaw()
         display.ddc?.setLater(vcp: VCP.mute, value: muted ? 1 : 2)
     }
 
