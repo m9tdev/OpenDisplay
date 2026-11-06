@@ -28,6 +28,7 @@ final class DisplayKeyTests: XCTestCase {
 
     func testATwinGetsItsKeyBackWhenItReturns() {
         let both = DisplayKey.settingsKeys([3: twin, 5: twin], previous: [:])
+        XCTAssertNotEqual(both[3], both[5])
         let alone = DisplayKey.settingsKeys([3: twin], previous: both)
         XCTAssertEqual(DisplayKey.settingsKeys([3: twin, 5: twin], previous: alone), both)
     }
@@ -44,6 +45,7 @@ final class DisplayKeyTests: XCTestCase {
     func testTwinsThatBothWentAwayGetTheirOwnKeysBack() {
         let first = DisplayKey.settingsKeys([5: twin], previous: [:])
         let both = DisplayKey.settingsKeys([3: twin, 5: twin], previous: first)
+        XCTAssertNotEqual(both[3], both[5])
         let none = DisplayKey.settingsKeys([:], previous: both)
         XCTAssertEqual(DisplayKey.settingsKeys([3: twin, 5: twin], previous: none), both)
     }
@@ -69,5 +71,44 @@ final class DisplayKeyTests: XCTestCase {
         let plan = memory.refresh(before: [], after: after, turnedOnByApp: [])
         XCTAssertEqual(plan.dimming[3], 0.3)
         XCTAssertEqual(plan.dimming[5], 0.8)
+    }
+
+    func testASingleMonitorTurnedOffThatReturnsWithANewIDKeepsItsSecondKey() {
+        // The app turned the monitor off at ID 3, so ID 3 stays listed with its key. The monitor comes back as ID 8.
+        // This looks the same as a twin that is plugged in while the first one is off, so ID 8 gets its own key.
+        let off = DisplayKey.settingsKeys([3: twin], previous: [:])
+        let back = DisplayKey.settingsKeys([3: twin, 8: twin], previous: off)
+        XCTAssertEqual(back[3], twin)
+        XCTAssertNotEqual(back[8], twin)
+        // ID 3 is no longer listed: ID 8 keeps its key, as a twin does while the other is away.
+        let alone = DisplayKey.settingsKeys([8: twin], previous: back)
+        XCTAssertEqual(alone[8], back[8])
+        // Its sync and expanded row come along when it gets that key (see the tests below).
+        XCTAssertEqual(DisplayKey.inheriting([twin], previous: off, current: back), [twin, back[8]!])
+    }
+
+    // MARK: Settings saved under the shared key
+
+    func testATwinThatGetsItsOwnKeyKeepsTheSettingsOfTheSharedKey() {
+        // Earlier versions saved brightness sync (or an expanded menu row) under the shared key, for both twins.
+        let keys = DisplayKey.settingsKeys([3: twin, 5: twin], previous: [:])
+        XCTAssertEqual(DisplayKey.inheriting([twin, other], previous: [:], current: keys),
+                       [twin, other, keys[5]!])
+    }
+
+    func testASettingNotSavedUnderTheSharedKeyIsNotCopied() {
+        let keys = DisplayKey.settingsKeys([3: twin, 5: twin], previous: [:])
+        XCTAssertEqual(DisplayKey.inheriting([other], previous: [:], current: keys), [other])
+    }
+
+    func testAKeyThatWasAlreadySavedDoesNotGetTheSettingsAgain() {
+        // The user turned sync off for the second twin only: it stays off.
+        let keys = DisplayKey.settingsKeys([3: twin, 5: twin], previous: [:])
+        XCTAssertEqual(DisplayKey.inheriting([twin], previous: keys, current: keys), [twin])
+        // Also after it was away.
+        let alone = DisplayKey.settingsKeys([3: twin], previous: keys)
+        XCTAssertEqual(DisplayKey.inheriting([twin], previous: alone,
+                                             current: DisplayKey.settingsKeys([3: twin, 5: twin], previous: alone)),
+                       [twin])
     }
 }

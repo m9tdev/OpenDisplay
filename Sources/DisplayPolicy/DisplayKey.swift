@@ -68,6 +68,13 @@ public enum DisplayKey {
         return keys
     }
 
+    /// The settings saved by key (for example the synced displays), after `settingsKeys` went from `previous` to
+    /// `current`.
+    public static func inheriting(_ saved: Set<String>, previous: [UInt32: String],
+                                  current: [UInt32: String]) -> Set<String> {
+        saved
+    }
+
     /// True when `settingsKey` can belong to a display with `key`: it is the key, or the key with a display ID.
     static func isSettingsKey(_ settingsKey: String, of key: String) -> Bool {
         settingsKey == key || settingsKey.hasPrefix(key + "#")
