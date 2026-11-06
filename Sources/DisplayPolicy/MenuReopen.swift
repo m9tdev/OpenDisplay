@@ -37,8 +37,9 @@ public struct MenuReopen: Equatable, Sendable {
     ///   - isOutdated: The open menu misses rows, or the menu bar icon is on another screen than the menu.
     ///   - closedByUser: The menu is closed, and the user closed it (a click or a key), not macOS.
     ///   - mouseIsDown: A mouse button is pressed, for example while the user drags a slider in the menu.
+    ///   - isRetry: This check is the one a `checkAgainLater` asked for.
     public mutating func check(at time: Double, isOpen: Bool, isOutdated: Bool, closedByUser: Bool,
-                               mouseIsDown: Bool) -> Action {
+                               mouseIsDown: Bool, isRetry: Bool = false) -> Action {
         guard let wantedSince else { return .nothing }
         // Closing the menu now would end the drag, and a resolution slider applies its choice only on mouse up.
         // So wait for the drag to end; the wish starts again then, so a long drag does not let it expire.
