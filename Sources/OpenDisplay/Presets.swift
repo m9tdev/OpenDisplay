@@ -62,13 +62,13 @@ extension DisplayManager {
             return
         }
         // After the preset, a physical display must be on (a virtual display does not count, see `DisplayPolicy`).
-        let turnsOn = Set(targets.filter(\.state.isEnabled).map(\.id))
+        let changes = PresetPolicy.changes(targets)
+        let turnsOn = changes.turnsOn, turnsOff = changes.turnsOff
         let after = states.map { state in
             var state = state
             if turnsOn.contains(state.id) { state.isActive = true }
             return state
         }
-        let turnsOff = Set(targets.filter { !$0.state.isEnabled }.map(\.id))
         let allowed = DisplayPolicy.canDisable(turnsOff, in: after)
         Self.log.notice("""
             Preset \(preset.name, privacy: .private): turns off \(turnsOff.sorted(), privacy: .public), \
@@ -107,7 +107,7 @@ extension DisplayManager {
                 if let error = DisplayArrangement.setMain(main.id) { errors.append(error) }
             }
             var turnedOff: Set<CGDirectDisplayID> = []
-            for (id, state) in steps where !state.isEnabled && Self.activeDisplays().contains(id) {
+            for (id, state) in steps where turnsOff.contains(id) && Self.activeDisplays().contains(id) {
                 // Check again with the displays as they are now: a display may have failed to turn on.
                 let live = Self.liveStates(disabled: [], builtins: builtins)
                 guard DisplayPolicy.canDisable([id], in: live) else {

@@ -160,6 +160,25 @@ final class PresetPolicyTests: XCTestCase {
         XCTAssertFalse(PresetPolicy.matches(preset, displays: twins(firstOn: false)))
     }
 
+    func testADisplayIsNeverTurnedOnAndOffByOnePreset() {
+        let on = Preset.DisplayState(key: externalKey, name: "BenQ", isEnabled: true, isMain: true, width: 1920,
+                                     height: 1080, pixelWidth: 3840, refreshRate: 60, rotation: 0)
+        var off = on
+        off.isEnabled = false
+        var builtinOff = on
+        builtinOff.key = builtinKey
+        builtinOff.isEnabled = false
+        let changes = PresetPolicy.changes([(3, on), (3, off), (1, builtinOff)])
+        XCTAssertEqual(changes, .init(turnsOn: [3], turnsOff: [1]))
+    }
+
+    func testAPresetSavedByAnEarlierVersionGoesToTheFirstDisplayWithItsKey() {
+        // Without saved display IDs, the entries go to the displays with their key in the order of the list.
+        var preset = PresetPolicy.current(named: "One on", displays: twins())
+        for index in preset.displays.indices { preset.displays[index].id = nil }
+        XCTAssertEqual(PresetPolicy.targets(of: preset, displays: twins()).map(\.id), [3, 4])
+    }
+
     // MARK: Saved format
 
     func testPresetsSavedByEarlierVersionsStillLoad() throws {
