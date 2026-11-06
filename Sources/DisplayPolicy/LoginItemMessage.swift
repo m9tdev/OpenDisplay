@@ -24,5 +24,9 @@ public struct LoginItemMessage: Equatable, Sendable {
     }
 
     /// The status was checked again: the login item is on (`isEnabled`) or not.
-    public mutating func checked(isEnabled: Bool) {}
+    public mutating func checked(isEnabled: Bool) {
+        guard let wanted, isEnabled == wanted else { return }
+        self.wanted = nil
+        text = nil
+    }
 }
