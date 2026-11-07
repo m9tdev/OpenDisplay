@@ -32,4 +32,57 @@ public enum DisplayKey {
         }
         return keys
     }
+
+    /// The keys that per-display settings are saved by (brightness sync, expanded menu rows, software dimming, the
+    /// record of an unfinished calibration), by display ID. `known`: the key of each display (see `key(reported:remembered:)`); `previous`: what this returned
+    /// last time, saved across app restarts.
+    ///
+    /// Two monitors of the same model without a serial number have the same key, so each display ID gets its own
+    /// settings key: a display keeps the one it had (`previous`), else it gets its key, or, while another display has
+    /// that key, its key with its display ID. So settings saved under the key by earlier versions stay with one display
+    /// (the one with the lowest ID, when both are new). The keys of displays that are not in `known` stay, so a twin
+    /// that goes away gets its own settings back when it returns, but its plain key goes to a display with that key and
+    /// no settings key yet (for example the same monitor with a new display ID). So the saved map only grows, by one
+    /// entry for each display ID seen.
+    public static func settingsKeys(_ known: [UInt32: String], previous: [UInt32: String]) -> [UInt32: String] {
+        var keys = previous
+        // A display ID now used by a monitor of another model, or a settings key claimed twice: drop it.
+        var claimed: Set<String> = []
+        for (id, base) in known.sorted(by: { $0.key < $1.key }) {
+            guard let key = keys[id] else { continue }
+            if isSettingsKey(key, of: base) && !claimed.contains(key) {
+                claimed.insert(key)
+            } else {
+                keys[id] = nil
+            }
+        }
+        for (id, base) in known.sorted(by: { $0.key < $1.key }) where keys[id] == nil {
+            let key = claimed.contains(base) ? "\(base)#\(id)" : base
+            // Each settings key names one display: a display that is gone loses it.
+            for (other, value) in keys where value == key {
+                keys[other] = nil
+            }
+            keys[id] = key
+            claimed.insert(key)
+        }
+        return keys
+    }
+
+    /// The settings saved by key (for example the synced displays), after `settingsKeys` went from `previous` to
+    /// `current`: a display that just got a key with its display ID also gets the setting of the plain key, which
+    /// earlier versions saved for both twins. A key the display already had keeps its own setting.
+    public static func inheriting(_ saved: Set<String>, previous: [UInt32: String],
+                                  current: [UInt32: String]) -> Set<String> {
+        var saved = saved
+        for (id, key) in current where previous[id] != key {
+            guard let hash = key.lastIndex(of: "#"), saved.contains(String(key[..<hash])) else { continue }
+            saved.insert(key)
+        }
+        return saved
+    }
+
+    /// True when `settingsKey` can belong to a display with `key`: it is the key, or the key with a display ID.
+    static func isSettingsKey(_ settingsKey: String, of key: String) -> Bool {
+        settingsKey == key || settingsKey.hasPrefix(key + "#")
+    }
 }

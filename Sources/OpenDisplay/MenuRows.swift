@@ -1,4 +1,5 @@
 import AppKit
+import DisplayPolicy
 import Observation
 import QuartzCore
 
@@ -203,6 +204,12 @@ final class MenuExpansion {
 
     func toggle(_ display: Display) {
         if keys.contains(display.stableKey) { keys.remove(display.stableKey) } else { keys.insert(display.stableKey) }
+    }
+
+    /// After the settings keys change (see `DisplayKey.inheriting`).
+    func inherit(previous: [CGDirectDisplayID: String], current: [CGDirectDisplayID: String]) {
+        let next = DisplayKey.inheriting(keys, previous: previous, current: current)
+        if next != keys { keys = next }
     }
 }
 
