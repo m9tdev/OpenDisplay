@@ -11,20 +11,20 @@ import Foundation
 ///
 /// Each half is exponential: per 0.1 step, the light is 2.64× higher in the lower half and 1.29× higher in the upper half.
 /// At exactly 0, macOS turns the backlight off, so the light is 0 (black).
-enum BrightnessCurve {
+public enum BrightnessCurve {
     private static let middle = 0.28
     private static let lowerStep = 2.64
     private static let upperStep = 1.29
 
     /// The light output (0...1) for a slider position (0...1).
-    static func light(slider: Double) -> Double {
+    public static func light(slider: Double) -> Double {
         guard slider > 0 else { return 0 }
         let steps = (min(max(slider, 0), 1) - 0.5) * 10
         return min(middle * pow(steps < 0 ? lowerStep : upperStep, steps), 1)
     }
 
     /// The slider position for a light output. The inverse of `light(slider:)`.
-    static func slider(light: Double) -> Double {
+    public static func slider(light: Double) -> Double {
         // Exactly 1 at the maximum: a rounding error would give 0.99999, which is not the maximum.
         guard light < 1 else { return 1 }
         let light = max(light, 1e-6)
@@ -34,7 +34,7 @@ enum BrightnessCurve {
 }
 
 /// How a display makes the light that the brightness slider asks for.
-enum BrightnessControl {
+public enum BrightnessControl: Equatable, Sendable {
     /// The built-in display: macOS's own brightness value, which already follows the curve. The slider is that value.
     case builtin
     /// An external display over DDC, with software dimming below its lowest level.
@@ -44,7 +44,7 @@ enum BrightnessControl {
     case software(scale: Double)
 
     /// The hardware level (nil: leave it as it is) and the software dimming factor for a slider position.
-    func split(_ slider: Double) -> (level: Double?, dimming: Double) {
+    public func split(_ slider: Double) -> (level: Double?, dimming: Double) {
         let slider = min(max(slider, 0), 1)
         switch self {
         case .builtin:
@@ -60,37 +60,68 @@ enum BrightnessControl {
     }
 
     /// The slider position for a hardware level and a software dimming factor. The inverse of `split`.
-    func slider(level: Double?, dimming: Double) -> Double {
+    public func slider(level: Double?, dimming: Double) -> Double {
         switch self {
         case .builtin:
             return min(max(level ?? 1, 0), 1)
         case .external(let curve):
-            let light = dimming < 1 ? dimming * curve.lowest : curve.light(level: level ?? 1)
+            // The software dimming scales the light of the level, also when the level is above the lowest (changed
+            // with the monitor's own buttons). Without a level, the dimmed display is at its lowest level.
+            let hardware = level.map { curve.light(level: $0) } ?? (dimming < 1 ? curve.lowest : 1)
+            let light = dimming * hardware
             return BrightnessCurve.slider(light: light / curve.scale)
         case .software(let scale):
             return BrightnessCurve.slider(light: dimming / scale)
         }
     }
+
+    /// The slider position after a read of the hardware `level` (nil: none), with the software `dimming`.
+    /// `shown`: the position the app shows now, nil if none. `levelStep`: the smallest change of level the hardware
+    /// reports.
+    ///
+    /// If the hardware is as `shown` sets it, the slider stays at `shown`: several positions can give the same
+    /// hardware state (a synced display at its maximum, or a level the monitor rounds to its own steps), and the
+    /// inverse would move the slider to one of them.
+    public func slider(readLevel level: Double?, dimming: Double, shown: Double?, levelStep: Double) -> Double {
+        if let shown {
+            let expected = split(shown)
+            let sameLevel: Bool
+            switch (expected.level, level) {
+            case (nil, nil): sameLevel = true
+            // The monitor stores a written level rounded to its steps: at most half a step away.
+            case let (wrote?, read?): sameLevel = abs(wrote - read) <= levelStep / 2 + 1e-9
+            default: sameLevel = false
+            }
+            if sameLevel && abs(expected.dimming - dimming) <= 1e-9 { return shown }
+        }
+        return slider(level: level, dimming: dimming)
+    }
 }
 
 /// How the light of an external display follows its DDC level, as a part of its maximum light:
 /// light = lowest + (1 - lowest) * level^gamma. Without a calibration, the values are estimates (see `BrightnessCalibration`).
-struct ExternalCurve: Equatable {
+public struct ExternalCurve: Equatable, Sendable {
     /// The light at the lowest DDC level. An estimate: typical external displays have 30–50 nits at their lowest
     /// and 300–500 nits at their highest level. Below this light, the image gets darker in software.
-    var lowest = 0.1
+    public var lowest: Double
     /// 1: the DDC level is linear in light output, which is typical.
-    var gamma = 1.0
+    public var gamma: Double
     /// The light the slider asks for is multiplied by this. With sync: the maximum of the brightest synced display
     /// divided by this display's maximum, so the synced displays give the same light (see `DisplayManager`).
-    var scale = 1.0
+    public var scale: Double
 
-    func light(level: Double) -> Double {
+    public init(lowest: Double = 0.1, gamma: Double = 1, scale: Double = 1) {
+        self.lowest = lowest
+        self.gamma = gamma
+        self.scale = scale
+    }
+
+    public func light(level: Double) -> Double {
         lowest + (1 - lowest) * pow(min(max(level, 0), 1), gamma)
     }
 
     /// The inverse of `light(level:)`.
-    func level(light: Double) -> Double {
+    public func level(light: Double) -> Double {
         pow(min(max((light - lowest) / (1 - lowest), 0), 1), 1 / gamma)
     }
 }

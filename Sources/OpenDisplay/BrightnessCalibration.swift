@@ -1,4 +1,5 @@
 import CoreGraphics
+import DisplayPolicy
 import Foundation
 
 /// The measured brightness of an external display model, from matching it by eye with the built-in display.
