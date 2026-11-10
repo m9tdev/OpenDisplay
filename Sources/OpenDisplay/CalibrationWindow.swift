@@ -17,9 +17,7 @@ final class CalibrationSession {
         case lowest, top, middle, middleReference, result
     }
 
-    enum Brighter {
-        case builtin, external, same
-    }
+    typealias Brighter = CalibrationTop.Brighter
 
     let builtin: Display
     let external: Display
@@ -140,8 +138,8 @@ final class CalibrationSession {
             return (binding(\.lowestSlider), builtinRange, builtin)
         case .top:
             switch brighter {
-            case .builtin: return (binding(\.topSlider), builtinRange, builtin)
-            case .external: return (binding(\.topSlider), 0...1, external)
+            case .builtin: return (binding(\.topSlider), CalibrationTop.sliderRange(.builtin), builtin)
+            case .external: return (binding(\.topSlider), CalibrationTop.sliderRange(.external), external)
             case .same, nil: return nil
             }
         case .middle:
@@ -180,12 +178,7 @@ final class CalibrationSession {
     /// The calibration values from the matches. Without DDC, only the maximum.
     var result: (lowest: Double?, gamma: Double?, maximum: Double, error: Double) {
         guard usesDDC else {
-            let maximum = switch brighter {
-            case .builtin: BrightnessCurve.light(slider: topSlider)
-            case .external: 1 / BrightnessCurve.light(slider: topSlider)
-            case .same, nil: 1.0
-            }
-            return (nil, nil, maximum, 1)
+            return (nil, nil, CalibrationTop.maximumWithoutDDC(brighter: brighter, slider: topSlider), 1)
         }
         let fit = matches.fit()
         return (fit.lowest, fit.gamma, fit.maximum, fit.error)
@@ -262,6 +255,9 @@ final class CalibrationSession {
 
     func save() {
         let result = result
+        // Never reached through the window, which offers no Save then. Saving it would break the brightness of the
+        // display (the app divides by the maximum).
+        guard CalibrationPolicy.isUsable(maximum: result.maximum) else { return }
         let calibration = BrightnessCalibration(
             vendor: CGDisplayVendorNumber(external.id), model: CGDisplayModelNumber(external.id), name: external.name,
             lowest: result.lowest, gamma: result.gamma, maximum: result.maximum,
@@ -390,9 +386,11 @@ private struct CalibrationView: View {
     private var externalName: String { session.external.name }
 
     var body: some View {
+        // Computed once: with DDC, the fit takes a moment.
+        let fit = session.step == .result ? session.result : nil
         VStack(alignment: .leading, spacing: 14) {
-            if session.step == .result {
-                result
+            if let fit {
+                result(fit)
             } else {
                 Text(session.stepCount > 1 ? "Step \(session.stepNumber) of \(session.stepCount)" : "Match the Highest Brightness")
                     .font(.headline)
@@ -425,7 +423,7 @@ private struct CalibrationView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            buttons
+            buttons(canSave: fit.map { CalibrationPolicy.isUsable(maximum: $0.maximum) } ?? false)
         }
         .padding(20)
         .frame(width: 440)
@@ -448,15 +446,20 @@ private struct CalibrationView: View {
         }
     }
 
-    @ViewBuilder private var result: some View {
-        let fit = session.result
+    @ViewBuilder private func result(_ fit: (lowest: Double?, gamma: Double?, maximum: Double, error: Double)) -> some View {
         Text("Result")
             .font(.headline)
-        VStack(alignment: .leading, spacing: 6) {
-            if let lowest = fit.lowest {
-                Text("Lowest brightness: \(percent(lowest)) of its maximum.")
+        if !CalibrationPolicy.isUsable(maximum: fit.maximum) {
+            Label("The matches give no usable result. Start again.", systemImage: "exclamationmark.triangle")
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                if let lowest = fit.lowest {
+                    Text("Lowest brightness: \(percent(lowest)) of its maximum.")
+                }
+                Text("Highest brightness: \(comparison(fit.maximum)).")
             }
-            Text("Highest brightness: \(comparison(fit.maximum)).")
         }
         if fit.error > 1.3 {
             Label("The matches do not agree well. For a better result, do the steps again.", systemImage: "exclamationmark.triangle")
@@ -469,7 +472,7 @@ private struct CalibrationView: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    private var buttons: some View {
+    private func buttons(canSave: Bool) -> some View {
         HStack {
             Button("Cancel") { session.finish() }
                 .keyboardShortcut(.cancelAction)
@@ -478,6 +481,7 @@ private struct CalibrationView: View {
                 Button("Start Again") { session.startAgain() }
                 Button("Save") { session.save() }
                     .keyboardShortcut(.defaultAction)
+                    .disabled(!canSave)
             } else {
                 if session.step != session.steps[0] {
                     Button("Back") { session.back() }
@@ -490,7 +494,9 @@ private struct CalibrationView: View {
     }
 
     private func percent(_ value: Double) -> String {
-        "\(Int((value * 100).rounded()))%"
+        // Int(exactly:) is nil for a number that has no Int (infinite, or too large), where Int() would crash.
+        guard let percent = Int(exactly: (value * 100).rounded()) else { return "?" }
+        return "\(percent)%"
     }
 
     private func comparison(_ maximum: Double) -> String {
