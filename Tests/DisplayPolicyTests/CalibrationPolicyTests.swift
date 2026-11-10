@@ -353,4 +353,74 @@ final class CalibrationPolicyTests: XCTestCase {
                                         externalKey: "4C2D-0E36-1234", externalBrightness: nil)
         XCTAssertNil(pending.restore(external: .own(brightness: nil)).externalBrightness)
     }
+
+    // MARK: Restore after a crash
+
+    func testWithBothDisplaysEverythingComesBackAndTheRecordGoes() {
+        let (now, pending) = record.restoreUnfinished(builtin: true, external: .own(brightness: nil))
+        XCTAssertEqual(now, Restore(autoBrightness: true, trueTone: true, builtinBrightness: 0.6, externalBrightness: 0.45))
+        XCTAssertNil(pending)
+    }
+
+    func testWithoutTheBuiltinDisplayItsPartWaits() {
+        // For example with the lid closed: the built-in display is not in macOS's lists.
+        let (now, pending) = record.restoreUnfinished(builtin: false, external: .own(brightness: nil))
+        XCTAssertEqual(now, Restore(autoBrightness: false, trueTone: true, builtinBrightness: nil, externalBrightness: 0.45))
+        XCTAssertEqual(pending, CalibrationRecord(autoBrightness: true, trueTone: false, builtinBrightness: 0.6,
+                                                  externalKey: "4C2D-0E36-1234", externalBrightness: nil))
+    }
+
+    func testTheBuiltinPartComesBackWithTheBuiltinDisplay() throws {
+        let pending = try XCTUnwrap(record.restoreUnfinished(builtin: false, external: .own(brightness: nil)).pending)
+        let (now, rest) = pending.restoreUnfinished(builtin: true, external: .own(brightness: nil))
+        XCTAssertEqual(now, Restore(autoBrightness: true, trueTone: false, builtinBrightness: 0.6, externalBrightness: nil))
+        XCTAssertNil(rest)
+    }
+
+    func testWithoutTheExternalDisplayItsPartWaits() {
+        let (now, pending) = record.restoreUnfinished(builtin: true, external: .absent)
+        XCTAssertEqual(now, Restore(autoBrightness: true, trueTone: true, builtinBrightness: 0.6, externalBrightness: nil))
+        XCTAssertEqual(pending, CalibrationRecord(autoBrightness: false, trueTone: false, builtinBrightness: nil,
+                                                  externalKey: "4C2D-0E36-1234", externalBrightness: 0.45))
+    }
+
+    func testTheExternalPartComesBackWithTheExternalDisplay() throws {
+        let pending = try XCTUnwrap(record.restoreUnfinished(builtin: true, external: .absent).pending)
+        let (now, rest) = pending.restoreUnfinished(builtin: true, external: .own(brightness: nil))
+        XCTAssertEqual(now, Restore(autoBrightness: false, trueTone: false, builtinBrightness: nil, externalBrightness: 0.45))
+        XCTAssertNil(rest)
+    }
+
+    func testASyncedExternalWaitsForTheBuiltinDisplay() throws {
+        // A synced external display gets its brightness from the built-in one.
+        let pending = try XCTUnwrap(record.restoreUnfinished(builtin: false, external: .synced).pending)
+        XCTAssertEqual(pending.builtinBrightness, 0.6)
+        XCTAssertEqual(pending.externalBrightness, 0.45)
+        let (now, rest) = pending.restoreUnfinished(builtin: true, external: .synced)
+        XCTAssertEqual(now.builtinBrightness, 0.6)
+        XCTAssertNil(rest)
+    }
+
+    func testWhileNoDisplayIsBackNothingChanges() throws {
+        let pending = try XCTUnwrap(record.restoreUnfinished(builtin: false, external: .absent).pending)
+        XCTAssertEqual(pending, CalibrationRecord(autoBrightness: true, trueTone: false, builtinBrightness: 0.6,
+                                                  externalKey: "4C2D-0E36-1234", externalBrightness: 0.45))
+        let (now, rest) = pending.restoreUnfinished(builtin: false, external: .absent)
+        XCTAssertEqual(now, Restore(autoBrightness: false, trueTone: false, builtinBrightness: nil, externalBrightness: nil))
+        XCTAssertEqual(rest, pending)
+    }
+
+    func testAnExternalWithoutASavedValueLeavesNothingToWaitFor() {
+        let unknown = CalibrationRecord(autoBrightness: true, trueTone: true, builtinBrightness: 0.6,
+                                        externalKey: "4C2D-0E36-1234", externalBrightness: nil)
+        XCTAssertNil(unknown.restoreUnfinished(builtin: true, external: .absent).pending)
+    }
+
+    func testWhatWasAlreadyOffDoesNotWait() {
+        let off = CalibrationRecord(autoBrightness: false, trueTone: false, builtinBrightness: nil,
+                                    externalKey: "4C2D-0E36-1234", externalBrightness: nil)
+        XCTAssertNil(off.restoreUnfinished(builtin: false, external: .absent).pending)
+    }
+
+    private typealias Restore = CalibrationRecord.Restore
 }

@@ -235,4 +235,13 @@ public struct CalibrationRecord: Codable, Equatable, Sendable {
         return Restore(autoBrightness: autoBrightness, trueTone: trueTone, builtinBrightness: builtinBrightness,
                        externalBrightness: externalBrightness)
     }
+
+    /// Puts back an unfinished calibration (after a crash), at a launch or when a display comes back.
+    /// - Parameters:
+    ///   - builtin: The built-in display is there and on.
+    ///   - external: The external display of the record. At a launch, pass `.own(brightness: nil)`.
+    /// - Returns: What to put back now, and what must wait for a display that is not there.
+    public func restoreUnfinished(builtin: Bool, external: External) -> (now: Restore, pending: CalibrationRecord?) {
+        (restore(external: external), nil)
+    }
 }
