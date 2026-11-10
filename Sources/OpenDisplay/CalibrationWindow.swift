@@ -194,9 +194,15 @@ final class CalibrationSession {
         }
         // A first DDC read that was pending at the start has ended by now, with the level from before the
         // calibration: the reads and the calibration's writes go to the monitor in order.
-        let restore = record.restore(external: manager.isSynced(external) ? .synced : .own(brightness: external.brightness))
-        Self.apply(restore, builtin: builtin, external: external, manager: manager)
-        UserDefaults.standard.removeObject(forKey: Self.recordKey)
+        let state: CalibrationRecord.External = manager.isSynced(external) ? .synced : .own(brightness: external.brightness)
+        let (now, pending) = record.restoreAtEnd(builtin: builtin.isEnabled, external: state)
+        Self.apply(now, builtin: builtin, external: external, manager: manager)
+        // What waits for the built-in display comes back with it, as after a crash (see `restoreUnfinished`).
+        if let pending {
+            UserDefaults.standard.set(pending.data, forKey: Self.recordKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.recordKey)
+        }
     }
 
     /// Ends the calibration, if one runs, and puts back what it changed. For when the app quits.
@@ -244,8 +250,7 @@ final class CalibrationSession {
         if restore.trueTone {
             PrivateAPI.trueToneClient()?.setValue(true, forKey: "enabled")
         }
-        // The built-in display first: it also sets a synced external display. At the end of a calibration, its
-        // built-in display can be off by now.
+        // The built-in display first: it also sets a synced external display.
         if let brightness = restore.builtinBrightness, let builtin, builtin.isEnabled {
             manager.setBrightness(builtin, to: brightness)
         }
