@@ -24,11 +24,10 @@ final class MenuSlider: NSSlider {
     var onRelease: (@MainActor () -> Void)?
 
     override func mouseDown(with event: NSEvent) {
-        gesture = .pressed(at: doubleValue)
+        gesture.press(at: doubleValue, isEnabled: isEnabled)
         // NSSlider follows the mouse here until the button goes up.
         super.mouseDown(with: event)
-        gesture = .released
-        onRelease?()
+        if gesture.release() { onRelease?() }
         gesture = .idle
     }
 }

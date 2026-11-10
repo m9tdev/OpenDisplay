@@ -9,8 +9,22 @@ public enum SliderGesture: Equatable, Sendable {
     case pressed(at: Double)
     /// The knob moved since the mouse went down, and the mouse is still down.
     case dragging
-    /// The mouse went up. The gesture ends after this step.
-    case released
+    /// The mouse went up, after the knob `moved` or not. The gesture ends after this step.
+    case released(moved: Bool)
+
+    /// The mouse went down on the slider, which is at `value`.
+    public mutating func press(at value: Double, isEnabled: Bool) {
+        self = .pressed(at: value)
+    }
+
+    /// The mouse went up. Returns whether a gesture ended, so the slider runs its release step.
+    public mutating func release() -> Bool {
+        switch self {
+        case .pressed, .idle, .released: self = .released(moved: false)
+        case .dragging: self = .released(moved: true)
+        }
+        return true
+    }
 
     /// The slider is at `value` now. Returns whether it is a new value: the old value that AppKit sends again at
     /// mouse-down is not.
@@ -38,7 +52,7 @@ public enum SliderGesture: Equatable, Sendable {
     public func choice(_ index: Int, current: Int?) -> Int? {
         switch self {
         case .pressed, .dragging: nil
-        case .idle, .released: index == current ? nil : index
+        case .idle, .released(moved: _): index == current ? nil : index
         }
     }
 }
