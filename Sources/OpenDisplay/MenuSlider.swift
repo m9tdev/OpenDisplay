@@ -1,4 +1,5 @@
 import AppKit
+import DisplayPolicy
 
 /// A slider that looks like the one in the system Sound menu: a 6 pt track and a white 20 × 16 pt pill knob.
 /// AppKit draws a plain NSSlider in a menu with a round knob, so this cell draws the parts itself.
@@ -14,6 +15,21 @@ final class MenuSlider: NSSlider {
 
     override var intrinsicContentSize: NSSize {
         NSSize(width: NSView.noIntrinsicMetric, height: MenuSliderCell.knobSize.height + 4)
+    }
+
+    /// The press, drag and release under way. AppKit sends the action at mouse-down too, so the rows ask this
+    /// before they apply a value.
+    var gesture = SliderGesture.idle
+    /// Runs when the user lets go of the slider, after the last action.
+    var onRelease: (@MainActor () -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        gesture = .pressed(at: doubleValue)
+        // NSSlider follows the mouse here until the button goes up.
+        super.mouseDown(with: event)
+        gesture = .released
+        onRelease?()
+        gesture = .idle
     }
 }
 

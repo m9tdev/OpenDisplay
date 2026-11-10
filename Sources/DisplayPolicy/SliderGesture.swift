@@ -12,27 +12,33 @@ public enum SliderGesture: Equatable, Sendable {
     /// The mouse went up. The gesture ends after this step.
     case released
 
-    /// The slider is at `value` now. Returns whether it is a new value.
+    /// The slider is at `value` now. Returns whether it is a new value: the old value that AppKit sends again at
+    /// mouse-down is not.
     public mutating func moved(to value: Double) -> Bool {
         switch self {
-        case .pressed, .idle, .dragging, .released:
+        case .pressed(let start):
+            guard value != start else { return false }
+            self = .dragging
+            return true
+        case .idle, .dragging, .released:
             return true
         }
     }
 
-    /// Whether the knob shows the stored value.
+    /// Whether the knob shows the stored value. Not while the user holds it: it would jump away from the mouse.
     public var followsStoredValue: Bool {
         switch self {
-        case .idle, .released, .pressed: true
-        case .dragging: false
+        case .idle, .released: true
+        case .pressed, .dragging: false
         }
     }
 
     /// The choice a stepped slider (a resolution, a refresh rate) applies when it is at `index`, or `nil`.
+    /// A choice blanks the screen for a moment, so only a finished choice applies, and only a new one.
     public func choice(_ index: Int, current: Int?) -> Int? {
         switch self {
-        case .dragging: nil
-        case .idle, .released, .pressed: index
+        case .pressed, .dragging: nil
+        case .idle, .released: index == current ? nil : index
         }
     }
 }

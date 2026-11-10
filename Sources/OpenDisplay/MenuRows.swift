@@ -562,7 +562,7 @@ final class SliderRowView: MenuRowView {
             low.toolTip = display.isMuted ? "Unmute" : "Mute"
         }
 
-        if let value, window?.currentEvent?.type != .leftMouseDragged {
+        if let value, slider.gesture.followsStoredValue {
             // A muted display shows an empty slider, like the system volume.
             slider.doubleValue = kind == .volume && display.isMuted ? 0 : value
         }
@@ -576,6 +576,8 @@ final class SliderRowView: MenuRowView {
     }
 
     @objc private func slid() {
+        // AppKit sends the old value again at mouse-down: writing it would only repeat the stored value.
+        guard slider.gesture.moved(to: slider.doubleValue) else { return }
         defer { valueLabel.stringValue = valueText }
         switch kind {
         case .brightness: manager.setBrightness(display, to: slider.doubleValue)
