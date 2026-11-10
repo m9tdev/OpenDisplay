@@ -36,6 +36,15 @@ enum SoftwareDimming {
         CGSetDisplayTransferByTable(id, UInt32(table.red.count), &table.red, &table.green, &table.blue)
     }
 
+    /// Drops the saved table without writing it, for a display ID that now belongs to another monitor: the table is the
+    /// old monitor's. If the old monitor was dimmed and macOS has not reset the table yet, the new monitor would stay
+    /// dimmed, so every display gets its color table from ColorSync again: call `set` again for the other dimmed
+    /// displays (the refresh does).
+    static func forget(_ id: CGDirectDisplayID) {
+        guard originals.removeValue(forKey: id) != nil else { return }
+        CGDisplayRestoreColorSyncSettings()
+    }
+
     static func restoreAll() {
         originals.keys.forEach(restore)
     }

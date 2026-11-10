@@ -153,3 +153,67 @@ final class DDCValueTests: XCTestCase {
         XCTAssertEqual(value.maximum, 50)
     }
 }
+
+/// A new DDC connection to the same monitor (after a wake).
+final class DDCValueNewConnectionTests: XCTestCase {
+    func testANewConnectionKeepsTheMaximum() {
+        var value = DDCValue()
+        let read = value.startRead()
+        _ = value.finish(read, current: 30, maximum: 50)
+        XCTAssertEqual(value.droppingReads().maximum, 50)
+    }
+
+    /// The answer to the read in flight is dropped, so a write must not wait for it.
+    func testAWriteDoesNotWaitForAReadOverTheOldConnection() {
+        var value = DDCValue()
+        let read = value.startRead()
+        _ = value.finish(read, current: 30, maximum: 50)
+        _ = value.startRead()
+        var renewed = value.droppingReads()
+        XCTAssertEqual(renewed.set(0.5), 25)
+    }
+
+    func testAWriteBeforeAnyAnswerUsesTheUsualMaximum() {
+        var value = DDCValue()
+        _ = value.startRead()
+        var renewed = value.droppingReads()
+        XCTAssertEqual(renewed.set(0.5), 50)
+    }
+
+    /// After a wake, a monitor that takes writes but does not answer reads keeps the brightness the slider shows.
+    func testAFailedReadThatKeepsTheShownValueIsUnanswered() {
+        var value = DDCValue().droppingReads()
+        let read = value.startRead(keepsShownOnFailure: true)
+        XCTAssertEqual(value.finish(read, current: nil, maximum: nil).answer, .unanswered)
+    }
+
+    /// Also when the app wrote meanwhile (brightness sync after the wake).
+    func testAnOutdatedFailedReadThatKeepsTheShownValueIsUnanswered() {
+        var value = DDCValue().droppingReads()
+        let read = value.startRead(keepsShownOnFailure: true)
+        _ = value.set(0.5)
+        XCTAssertEqual(value.finish(read, current: nil, maximum: nil).answer, .unanswered)
+    }
+
+    func testAnAnsweredReadThatKeepsTheShownValueIsShown() {
+        var value = DDCValue().droppingReads()
+        let read = value.startRead(keepsShownOnFailure: true)
+        XCTAssertEqual(value.finish(read, current: 40, maximum: 100).answer, .show(current: 40, level: 0.4))
+    }
+
+    /// A display that turns on shows nothing yet: a failed read still shows the failure.
+    func testAnyOtherFailedReadFails() {
+        var value = DDCValue()
+        let read = value.startRead()
+        XCTAssertEqual(value.finish(read, current: nil, maximum: nil).answer, .failed)
+    }
+
+    func testAReadOverTheNewConnectionIsShown() {
+        var value = DDCValue()
+        _ = value.startRead()
+        _ = value.set(0.8)
+        var renewed = value.droppingReads()
+        let read = renewed.startRead()
+        XCTAssertEqual(renewed.finish(read, current: 40, maximum: 100).answer, .show(current: 40, level: 0.4))
+    }
+}

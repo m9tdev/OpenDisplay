@@ -1,10 +1,14 @@
 import CoreGraphics
+import DisplayPolicy
 import Foundation
 import IOKit
 
 /// One external display that answers DDC/CI over an IOAVService.
 final class DDCService: @unchecked Sendable {
     let service: CFTypeRef
+    /// The registry entry ID of the service, so a refresh can tell a new connection to the display (see `MonitorLink`).
+    /// `nil` if it could not be read.
+    let entryID: UInt64?
     private let queue = DispatchQueue(label: "dev.m9t.OpenDisplay.ddc")
     private let lock = NSLock()
     /// Newest value to write for each VCP code.
@@ -14,8 +18,9 @@ final class DDCService: @unchecked Sendable {
     private static let chipAddress: UInt32 = 0x37
     private static let dataAddress: UInt32 = 0x51
 
-    init(service: CFTypeRef) {
+    init(service: CFTypeRef, entryID: UInt64?) {
         self.service = service
+        self.entryID = entryID
     }
 
     /// Queue a write. If a write is in progress, only the newest value for each VCP code is sent next.
@@ -208,9 +213,14 @@ enum DDCDiscovery {
         var framebuffer: Framebuffer
         /// Retained. Released after matching.
         var entry: io_service_t
+        /// Its registry entry ID, `nil` if it could not be read.
+        var entryID: UInt64?
     }
 
-    static func services(for displays: [CGDirectDisplayID]) -> [CGDirectDisplayID: DDCService] {
+    /// `current`: the registry entry ID of the service each display has now. A display keeps it while it is still in
+    /// the registry (see `DDCPairing`).
+    static func services(for displays: [CGDirectDisplayID],
+                         current: [CGDirectDisplayID: UInt64] = [:]) -> [CGDirectDisplayID: DDCService] {
         let externals = displays.filter { CGDisplayIsBuiltin($0) == 0 }
         guard let create = PrivateAPI.avServiceCreate, !externals.isEmpty else { return [:] }
         var candidates: [Candidate] = []
@@ -237,7 +247,9 @@ enum DDCDiscovery {
             case "DCPAVServiceProxy":
                 guard property(entry, "Location") as? String == "External", let framebuffer = lastFramebuffer else { continue }
                 IOObjectRetain(entry)
-                candidates.append(Candidate(framebuffer: framebuffer, entry: entry))
+                var entryID: UInt64 = 0
+                let readID = IORegistryEntryGetRegistryEntryID(entry, &entryID) == KERN_SUCCESS
+                candidates.append(Candidate(framebuffer: framebuffer, entry: entry, entryID: readID ? entryID : nil))
                 lastFramebuffer = nil
             default:
                 continue
@@ -248,27 +260,19 @@ enum DDCDiscovery {
 
         // Only open a service for a display that is on. Opening one for a display that is off may wake it.
         func service(_ candidate: Candidate) -> DDCService? {
-            create(kCFAllocatorDefault, candidate.entry).map { DDCService(service: $0.takeRetainedValue()) }
+            create(kCFAllocatorDefault, candidate.entry).map {
+                DDCService(service: $0.takeRetainedValue(), entryID: candidate.entryID)
+            }
         }
 
-        var result: [CGDirectDisplayID: DDCService] = [:]
-        var unused = candidates
-        for display in externals {
-            let match = unused.firstIndex {
-                $0.framebuffer.vendor == CGDisplayVendorNumber(display)
-                    && $0.framebuffer.model == CGDisplayModelNumber(display)
-                    && ($0.framebuffer.serial == nil || $0.framebuffer.serial == CGDisplaySerialNumber(display))
-            }
-            if let match {
-                result[display] = service(unused.remove(at: match))
-            }
-        }
-        // Fallback: one display left and one service left, so they must belong together.
-        let unmatched = externals.filter { result[$0] == nil }
-        if unmatched.count == 1, unused.count == 1 {
-            result[unmatched[0]] = service(unused[0])
-        }
-        return result
+        let pairs = DDCPairing.pair(externals.map {
+            DDCPairing.Display(id: $0, vendor: CGDisplayVendorNumber($0), model: CGDisplayModelNumber($0),
+                               serial: CGDisplaySerialNumber($0), current: current[$0])
+        }, with: candidates.map {
+            DDCPairing.Service(entry: $0.entryID, vendor: $0.framebuffer.vendor, model: $0.framebuffer.model,
+                               serial: $0.framebuffer.serial)
+        })
+        return pairs.compactMapValues { service(candidates[$0]) }
     }
 
     private static func framebuffer(_ entry: io_registry_entry_t) -> Framebuffer {

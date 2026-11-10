@@ -35,6 +35,10 @@ final class Display: Identifiable {
     @ObservationIgnored var brightnessDDC = DDCValue()
     @ObservationIgnored var volumeDDC = DDCValue()
     @ObservationIgnored var muteDDC = DDCValue()
+    /// Goes up each time `ddc` changes: answers to reads sent over an earlier connection are dropped.
+    @ObservationIgnored var connectionGeneration = 0
+    /// The key of the monitor the display's state belongs to, from the last refresh that checked it (see `MonitorLink`).
+    @ObservationIgnored var monitorKey: String?
     /// The monitor's DDC brightness maximum, or the usual one until a read tells it.
     var ddcMax: UInt16 { brightnessDDC.maximum ?? DDCValue.assumedMaximum }
     /// Software dimming: 1 is the normal image.
@@ -243,10 +247,14 @@ final class DisplayManager {
             MenuExpansion.shared.inherit(previous: storedSettingsKeys, current: keysForSettings)
         }
 
-        let ddc = DDCDiscovery.services(for: ids.filter { active.contains($0) })
+        // A display keeps its DDC service while it is still there: twin monitors without a serial number are otherwise
+        // paired in list order, which can change.
+        let ddc = DDCDiscovery.services(for: ids.filter { active.contains($0) }, current: byID.compactMapValues { $0.ddc?.entryID })
 
-        let before = byID.values.map { reconnectSnapshot($0) }
+        var before = byID.values.map { reconnectSnapshot($0) }
         var next: [Display] = []
+        var replacedMonitors: Set<CGDirectDisplayID> = []
+        var resyncs: Set<CGDirectDisplayID> = []
         for id in ids {
             let display = byID[id] ?? Display(id: id, name: disabled[id] ?? Self.name(of: id))
             display.rememberedKey = keys[id]
@@ -260,25 +268,44 @@ final class DisplayManager {
             if display.isEnabled {
                 display.name = Self.name(of: id)
                 display.stableKeyWhenOn = display.stableKey
-                if display.ddc == nil || ddc[id] == nil {
-                    // A display without DDC before and now keeps its slider position: its brightness is read again
-                    // below, and the read keeps the position if the display is still as it shows.
-                    if (display.ddc == nil) != (ddc[id] == nil) { display.brightness = nil }
-                    display.ddc = ddc[id]
-                    display.volume = nil
+                // The ID may now belong to another monitor, or the monitor may have a new DDC connection (after a wake
+                // or a fast replug): the state of the old one must not carry over. A display without DDC before and
+                // now keeps its slider position: its brightness is read again below, and the read keeps the position
+                // if the display is still as it shows.
+                let change = MonitorLink.change(
+                    from: MonitorLink(key: display.monitorKey, connection: display.ddc.map { .init(entry: $0.entryID) }),
+                    to: MonitorLink(key: keys[id], connection: ddc[id].map { .init(entry: $0.entryID) }))
+                if change != .same {
+                    Self.log.notice("Display \(id, privacy: .public): \(String(describing: change), privacy: .public)")
                 }
+                if let key = keys[id] { display.monitorKey = key }
+                let resets = MonitorLink.resets(for: change)
+                reset(display, resets, connection: ddc[id])
+                if change == .monitorReplaced { replacedMonitors.insert(id) }
+                if resets.contains(.resync) { resyncs.insert(id) }
+                if display.ddc == nil { display.volume = nil }
             } else {
-                display.ddc = nil
+                setConnection(display, nil)
             }
             next.append(display)
         }
         // A display that went away and came back is a new display object, so its dimming starts at 1: it gets back
-        // what it had when it went away.
+        // what it had when it went away. Another monitor behind a display ID counts as the old one going away and the
+        // new one arriving. A display with a new DDC connection resyncs, but it did not turn on.
+        if !replacedMonitors.isEmpty {
+            let staying = before.filter { !replacedMonitors.contains($0.id) }
+            _ = reconnects.refresh(before: before, after: staying, turnedOnByApp: [])
+            before = staying
+        }
         let plan = reconnects.refresh(before: before, after: next.map { reconnectSnapshot($0) },
-                                      turnedOnByApp: turnedOnByApp)
+                                      turnedOnByApp: turnedOnByApp, reconnected: resyncs.subtracting(replacedMonitors))
         turnedOnByApp = []
         for display in next {
             if let dimming = plan.dimming[display.id] { display.dimming = dimming }
+        }
+        // macOS resets the color table of a display that goes away, and its ID may later belong to another monitor.
+        for id in byID.keys where !next.contains(where: { $0.id == id }) {
+            SoftwareDimming.restore(id)
         }
         byID = Dictionary(uniqueKeysWithValues: next.map { ($0.id, $0) })
         displays = next.sorted { ($0.isBuiltin ? 1 : 0, $0.id) < ($1.isBuiltin ? 1 : 0, $1.id) }
@@ -320,6 +347,62 @@ final class DisplayManager {
     /// How long a display that just turned on needs before it accepts DDC writes.
     static let ddcReadyDelay: TimeInterval = 1.5
 
+    /// Resets the state of `display` that no longer applies after its monitor or DDC connection changed (see
+    /// `MonitorLink`). `connection`: the DDC service the refresh found for it.
+    private func reset(_ display: Display, _ resets: MonitorLink.Resets, connection: DDCService?) {
+        if resets.contains(.connection) { setConnection(display, connection) }
+        if resets.contains(.readValues) {
+            display.brightness = nil
+            display.volume = nil
+        }
+        if resets.contains(.readValuesWhenReady) { readWhenReady(display) }
+        if resets.contains(.monitorState) {
+            display.brightnessDDC = DDCValue()
+            display.volumeDDC = DDCValue()
+            display.muteDDC = DDCValue()
+            display.capabilities = nil
+            display.supportsVolume = false
+            display.isMuted = false
+            display.contrast = nil
+            display.contrastMax = 100
+            display.colorPreset = nil
+            display.input = nil
+            display.monitorSettings = nil
+        }
+        if resets.contains(.dimming) {
+            display.dimming = 1
+            SoftwareDimming.forget(display.id)
+        }
+    }
+
+    /// Sets the DDC service of `display`. Answers to reads sent over the one it had are dropped.
+    private func setConnection(_ display: Display, _ connection: DDCService?) {
+        guard display.ddc !== connection else { return }
+        display.ddc = connection
+        display.connectionGeneration += 1
+        display.brightnessDDC = display.brightnessDDC.droppingReads()
+        display.volumeDDC = display.volumeDDC.droppingReads()
+        display.muteDDC = display.muteDDC.droppingReads()
+        // Empty while a read was in flight (see `readCapabilities`): its answer is dropped, so read them again.
+        if display.capabilities?.isEmpty == true { display.capabilities = nil }
+    }
+
+    /// Reads the brightness and the volume of `display` again once the monitor accepts DDC over its new connection.
+    /// Until then the menu keeps the values it shows, and it keeps them if the monitor does not answer. During a
+    /// calibration the monitor's level is the calibration's, not the display's brightness, so the brightness is not
+    /// read.
+    private func readWhenReady(_ display: Display) {
+        let generation = display.connectionGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.ddcReadyDelay) { [weak self, weak display] in
+            MainActor.assumeIsolated {
+                guard let self, let display, self.byID[display.id] === display, display.isEnabled,
+                      display.connectionGeneration == generation else { return }
+                if !self.isCalibrating { self.readBrightness(display, keepsShownOnFailure: true) }
+                self.readVolume(display)
+            }
+        }
+    }
+
     /// A display for `ReconnectMemory`.
     private func reconnectSnapshot(_ display: Display) -> ReconnectMemory.Snapshot {
         ReconnectMemory.Snapshot(id: display.id, key: display.stableKeyWhenOn, isEnabled: display.isEnabled,
@@ -333,7 +416,10 @@ final class DisplayManager {
     // All brightness sliders follow the macOS curve (see `BrightnessCurve`), so the same slider position gives
     // about the same light on each display. Below an external display's lowest level, software dimming makes it darker.
 
-    func readBrightness(_ display: Display) {
+    /// `keepsShownOnFailure`: if the monitor does not answer, keep the brightness shown and its error (see
+    /// `DDCValue.startRead`).
+    func readBrightness(_ display: Display, keepsShownOnFailure: Bool = false) {
+        let previousError = display.brightnessError
         display.brightnessError = nil
         if display.isBuiltin {
             var value: Float = 0
@@ -350,10 +436,11 @@ final class DisplayManager {
                 readLevel: nil, dimming: display.dimming, shown: shownBrightness(display), levelStep: 0)
             return
         }
-        let read = display.brightnessDDC.startRead()
+        let read = display.brightnessDDC.startRead(keepsShownOnFailure: keepsShownOnFailure && display.brightness != nil)
+        let generation = display.connectionGeneration
         ddc.readLater(vcp: VCP.brightness) { [weak self, weak display] result in
             MainActor.assumeIsolated {
-                guard let self, let display else { return }
+                guard let self, let display, display.connectionGeneration == generation else { return }
                 let (answer, write) = display.brightnessDDC.finish(read, current: result?.current, maximum: result?.max)
                 if let write { display.ddc?.setLater(vcp: VCP.brightness, value: write) }
                 if case .show(_, let level?) = answer {
@@ -364,6 +451,8 @@ final class DisplayManager {
                     // The app set the brightness after the read was sent (for example brightness sync at launch):
                     // the monitor answered with its level from before, so the slider keeps the app's value.
                     if failed { display.brightnessError = "Could not read value over DDC" }
+                } else if case .unanswered = answer {
+                    display.brightnessError = previousError
                 } else {
                     // Writes often work when reads do not, so still allow control.
                     display.brightness = 0.5
@@ -606,11 +695,12 @@ final class DisplayManager {
     /// Reads the monitor settings that change the light, into `monitorSettings`.
     func readMonitorSettings(_ display: Display) {
         guard let ddc = display.ddc else { return }
+        let generation = display.connectionGeneration
         for setting in BrightnessCalibration.monitorSettings
         where display.capabilities?.isEmpty != false || display.capabilities?[setting.vcp] != nil {
             ddc.readLater(vcp: setting.vcp) { [weak display] result in
                 MainActor.assumeIsolated {
-                    guard let display, let result else { return }
+                    guard let display, display.connectionGeneration == generation, let result else { return }
                     display.monitorSettings = (display.monitorSettings ?? [:]).merging([setting.name: result.current]) { $1 }
                 }
             }
@@ -622,10 +712,11 @@ final class DisplayManager {
     /// External display speakers only: macOS cannot change their volume, but most external displays accept it over DDC.
     func readVolume(_ display: Display) {
         guard let ddc = display.ddc else { return }
+        let generation = display.connectionGeneration
         let volumeRead = display.volumeDDC.startRead()
         ddc.readLater(vcp: VCP.volume) { [weak display] result in
             MainActor.assumeIsolated {
-                guard let display else { return }
+                guard let display, display.connectionGeneration == generation else { return }
                 let (answer, write) = display.volumeDDC.finish(volumeRead, current: result?.current, maximum: result?.max)
                 if let write { display.ddc?.setLater(vcp: VCP.volume, value: write) }
                 guard case .show(_, let level?) = answer else { return }
@@ -636,7 +727,7 @@ final class DisplayManager {
         let muteRead = display.muteDDC.startRead()
         ddc.readLater(vcp: VCP.mute) { [weak display] result in
             MainActor.assumeIsolated {
-                guard let display else { return }
+                guard let display, display.connectionGeneration == generation else { return }
                 guard case .show(let current, _) = display.muteDDC.finish(muteRead, current: result?.current, maximum: result?.max).answer
                 else { return }
                 display.isMuted = current == 1
@@ -952,9 +1043,11 @@ final class DisplayManager {
     private func readCapabilities(_ display: Display) {
         // Empty while reading, so a refresh does not start a second read. Nil after a failed read, so the next refresh tries again.
         display.capabilities = [:]
+        let generation = display.connectionGeneration
         display.ddc?.capabilitiesLater { [weak display] text in
             MainActor.assumeIsolated {
-                display?.capabilities = text.map(VCP.parse(capabilities:))
+                guard let display, display.connectionGeneration == generation else { return }
+                display.capabilities = text.map(VCP.parse(capabilities:))
             }
         }
     }
@@ -962,10 +1055,11 @@ final class DisplayManager {
     /// Reads the values in the Options submenu. The menu calls this when it opens, so they are ready in time.
     func readDDCSettings(_ display: Display) {
         guard let ddc = display.ddc, let capabilities = display.capabilities else { return }
+        let generation = display.connectionGeneration
         if capabilities[VCP.contrast] != nil {
             ddc.readLater(vcp: VCP.contrast) { [weak display] result in
                 MainActor.assumeIsolated {
-                    guard let display, let result, result.max > 0 else { return }
+                    guard let display, display.connectionGeneration == generation, let result, result.max > 0 else { return }
                     display.contrastMax = result.max
                     display.contrast = Double(result.current) / Double(result.max)
                 }
@@ -973,12 +1067,18 @@ final class DisplayManager {
         }
         if capabilities[VCP.colorPreset] != nil {
             ddc.readLater(vcp: VCP.colorPreset) { [weak display] result in
-                MainActor.assumeIsolated { display?.colorPreset = result.map { UInt8(truncatingIfNeeded: $0.current) } }
+                MainActor.assumeIsolated {
+                    guard let display, display.connectionGeneration == generation else { return }
+                    display.colorPreset = result.map { UInt8(truncatingIfNeeded: $0.current) }
+                }
             }
         }
         if capabilities[VCP.input] != nil {
             ddc.readLater(vcp: VCP.input) { [weak display] result in
-                MainActor.assumeIsolated { display?.input = result.map { UInt8(truncatingIfNeeded: $0.current) } }
+                MainActor.assumeIsolated {
+                    guard let display, display.connectionGeneration == generation else { return }
+                    display.input = result.map { UInt8(truncatingIfNeeded: $0.current) }
+                }
             }
         }
     }
