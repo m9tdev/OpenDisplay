@@ -235,4 +235,36 @@ public struct CalibrationRecord: Codable, Equatable, Sendable {
         return Restore(autoBrightness: autoBrightness, trueTone: trueTone, builtinBrightness: builtinBrightness,
                        externalBrightness: externalBrightness)
     }
+
+    /// Puts back an unfinished calibration (after a crash), at a launch or when a display comes back. A part for a
+    /// display that is not there waits for it: for example the built-in display with the lid closed, or an external
+    /// display that is unplugged. True Tone is not tied to a display, so it always comes back now.
+    /// - Parameters:
+    ///   - builtin: The built-in display is there and on.
+    ///   - external: The external display of the record. With its own brightness, pass `.own(brightness: nil)`: the
+    ///     value the app read from the monitor is the calibration's.
+    /// - Returns: What to put back now, and the record of what waits, or nil when nothing waits.
+    public func restoreUnfinished(builtin: Bool, external: External) -> (now: Restore, pending: CalibrationRecord?) {
+        var now = restore(external: external)
+        var pending = self
+        pending.trueTone = false
+        if builtin {
+            pending.autoBrightness = false
+            pending.builtinBrightness = nil
+        } else {
+            now.autoBrightness = false
+            now.builtinBrightness = nil
+        }
+        // A synced external display gets its brightness from the built-in one.
+        let externalDone = switch external {
+        case .absent: false
+        case .synced: builtin
+        case .own: true
+        }
+        if externalDone {
+            pending.externalBrightness = nil
+        }
+        let waits = pending.autoBrightness || pending.builtinBrightness != nil || pending.externalBrightness != nil
+        return (now, waits ? pending : nil)
+    }
 }

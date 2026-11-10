@@ -171,7 +171,6 @@ final class DisplayManager {
 
     init() {
         refresh()
-        CalibrationSession.restoreUnfinished(manager: self)
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 // Logout, restart or an update can quit the app during a calibration.
@@ -342,6 +341,8 @@ final class DisplayManager {
         XDRBoost.shared.displaysChanged()
         revision += 1
         keepADisplayOn()
+        // After a crash during a calibration: at the launch, and for a display that was not there, when it comes back.
+        CalibrationSession.restoreUnfinished(manager: self)
     }
 
     /// How long a display that just turned on needs before it accepts DDC writes.

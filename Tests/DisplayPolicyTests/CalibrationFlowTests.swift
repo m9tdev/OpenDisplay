@@ -94,8 +94,10 @@ final class CalibrationFlowTests: XCTestCase {
     }
 
     func testNoStepPastTheTopHasTheBrighterDisplayUnchosen() {
-        // Every sequence of up to 6 events from the start: past the top step, a choice was always made.
-        let events: [CalibrationFlow.Event] = [.next, .back, .startAgain, .choose(.builtin), .choose(.same), .move(0.4)]
+        // Every sequence of up to 6 events from the start: past the top step, a choice was always made, and the slider
+        // is inside its range.
+        let events: [CalibrationFlow.Event] = [.next, .back, .startAgain, .choose(.builtin), .choose(.external),
+                                               .choose(.same), .move(0.4), .move(1)]
         for usesDDC in [true, false] {
             var flows = [CalibrationFlow(usesDDC: usesDDC)]
             for _ in 0..<6 {
@@ -111,7 +113,10 @@ final class CalibrationFlowTests: XCTestCase {
                     if flow.steps.firstIndex(of: flow.step)! > topIndex {
                         XCTAssertNotEqual(flow.top, .unchosen)
                     }
-                    XCTAssertTrue(flow.steps.contains(flow.step))
+                    // The slider shows its position inside its range.
+                    if let slider = flow.slider {
+                        XCTAssertTrue(slider.range.contains(slider.value), "\(slider) on \(flow.step)")
+                    }
                 }
             }
         }
