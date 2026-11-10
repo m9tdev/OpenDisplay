@@ -472,6 +472,8 @@ final class SliderRowView: MenuRowView {
         slider.isContinuous = true
         slider.target = self
         slider.action = #selector(slid)
+        // An update can have come while the knob was held.
+        slider.onRelease = { [weak self] in self?.update() }
 
         let highSymbol = switch kind {
         case .brightness: "sun.max.fill"

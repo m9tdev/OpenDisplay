@@ -12,16 +12,19 @@ public enum SliderGesture: Equatable, Sendable {
     /// The mouse went up, after the knob `moved` or not. The gesture ends after this step.
     case released(moved: Bool)
 
-    /// The mouse went down on the slider, which is at `value`.
+    /// The mouse went down on the slider, which is at `value`. A disabled slider in a menu still gets the
+    /// mouse-down: that is no gesture.
     public mutating func press(at value: Double, isEnabled: Bool) {
-        self = .pressed(at: value)
+        self = isEnabled ? .pressed(at: value) : .idle
     }
 
     /// The mouse went up. Returns whether a gesture ended, so the slider runs its release step.
     public mutating func release() -> Bool {
         switch self {
-        case .pressed, .idle, .released: self = .released(moved: false)
+        case .idle: return false
+        case .pressed: self = .released(moved: false)
         case .dragging: self = .released(moved: true)
+        case .released: break
         }
         return true
     }
@@ -48,11 +51,12 @@ public enum SliderGesture: Equatable, Sendable {
     }
 
     /// The choice a stepped slider (a resolution, a refresh rate) applies when it is at `index`, or `nil`.
-    /// A choice blanks the screen for a moment, so only a finished choice applies, and only a new one.
+    /// A choice blanks the screen for a moment, so only a finished choice applies, and only a new one. A click
+    /// without a move is no choice: the knob can show an older choice when the current one is not in the list.
     public func choice(_ index: Int, current: Int?) -> Int? {
         switch self {
-        case .pressed, .dragging: nil
-        case .idle, .released(moved: _): index == current ? nil : index
+        case .pressed, .dragging, .released(moved: false): nil
+        case .idle, .released(moved: true): index == current ? nil : index
         }
     }
 }

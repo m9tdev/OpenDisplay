@@ -41,7 +41,10 @@ final class SteppedSliderRowView: MenuRowView {
         slider.isContinuous = true
         slider.target = self
         slider.action = #selector(slid)
-        slider.onRelease = { [weak self] in self?.applyChoice() }
+        slider.onRelease = { [weak self] in
+            // Without a new choice, show the current one: an update can have come while the knob was held.
+            if self?.applyChoice() == false { self?.reload() }
+        }
 
         let low = Self.icon(lowSymbol)
         let high = Self.icon(highSymbol)
@@ -97,10 +100,12 @@ final class SteppedSliderRowView: MenuRowView {
         applyChoice()
     }
 
-    private func applyChoice() {
-        if let choice = slider.gesture.choice(Int(slider.doubleValue.rounded()), current: choices().current) {
-            apply(choice)
-        }
+    /// Returns whether it applied a choice.
+    @discardableResult private func applyChoice() -> Bool {
+        guard let choice = slider.gesture.choice(Int(slider.doubleValue.rounded()), current: choices().current)
+        else { return false }
+        apply(choice)
+        return true
     }
 
     private static func icon(_ symbol: String) -> NSImageView {
