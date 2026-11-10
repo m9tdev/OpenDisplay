@@ -503,5 +503,21 @@ final class CalibrationPolicyTests: XCTestCase {
         XCTAssertNil(rest)
     }
 
+    // MARK: Synced displays after a saved or reset calibration
+
+    func testWithTheBuiltinDisplayOnSyncedDisplaysFollowItAfterANewCalibration() {
+        XCTAssertEqual(CalibrationPolicy.syncedAfterChange(builtinOn: true, sharedBrightness: 0.4), .followBuiltin)
+        XCTAssertEqual(CalibrationPolicy.syncedAfterChange(builtinOn: true, sharedBrightness: nil), .followBuiltin)
+    }
+
+    func testWithTheBuiltinDisplayOffSyncedDisplaysGetTheSharedBrightnessWithTheNewCurve() {
+        // For example after Save, when the calibration ended because the app turned the built-in display off.
+        XCTAssertEqual(CalibrationPolicy.syncedAfterChange(builtinOn: false, sharedBrightness: 0.4), .applyShared(0.4))
+    }
+
+    func testWithTheBuiltinDisplayOffAndNoSharedBrightnessNothingIsSet() {
+        XCTAssertEqual(CalibrationPolicy.syncedAfterChange(builtinOn: false, sharedBrightness: nil), .nothing)
+    }
+
     private typealias Restore = CalibrationRecord.Restore
 }

@@ -35,6 +35,24 @@ public enum CalibrationPolicy {
         guard let calibrationLevel else { return false }
         return abs(notified - calibrationLevel) >= builtinTolerance
     }
+
+    /// What the synced displays do after a calibration was saved or reset, which changes their curves: the same
+    /// shared brightness now gives another level.
+    public enum SyncedAfterChange: Equatable, Sendable {
+        /// Follow the built-in display again, as after any change of it.
+        case followBuiltin
+        /// Set the shared brightness again with the new curves.
+        case applyShared(Double)
+        /// Nothing to set.
+        case nothing
+    }
+
+    /// - Parameters:
+    ///   - builtinOn: The built-in display is on in the app.
+    ///   - sharedBrightness: The shared slider position of the synced displays, or nil if they have none yet.
+    public static func syncedAfterChange(builtinOn: Bool, sharedBrightness: Double?) -> SyncedAfterChange {
+        builtinOn ? .followBuiltin : .nothing
+    }
 }
 
 /// Keeps the built-in display at the calibration's level when macOS changes it, without a fast loop: if macOS rounds

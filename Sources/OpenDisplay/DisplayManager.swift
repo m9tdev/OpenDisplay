@@ -686,8 +686,16 @@ final class DisplayManager {
                 setBrightness(other, to: brightness)
             }
         }
+        // The synced displays have new curves too.
         lastBuiltinBacklight = nil
-        syncFromBuiltin()
+        switch CalibrationPolicy.syncedAfterChange(builtinOn: builtin != nil, sharedBrightness: sharedBrightness) {
+        case .followBuiltin:
+            syncFromBuiltin()
+        case .applyShared(let shared):
+            setSharedBrightness(shared)
+        case .nothing:
+            break
+        }
     }
 
     /// A calibration with DDC is only for a display with DDC, and one without DDC only for a display without it.
