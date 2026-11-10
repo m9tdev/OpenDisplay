@@ -51,7 +51,9 @@ public enum CalibrationPolicy {
     ///   - builtinOn: The built-in display is on in the app.
     ///   - sharedBrightness: The shared slider position of the synced displays, or nil if they have none yet.
     public static func syncedAfterChange(builtinOn: Bool, sharedBrightness: Double?) -> SyncedAfterChange {
-        builtinOn ? .followBuiltin : .nothing
+        if builtinOn { return .followBuiltin }
+        // Without the built-in display there is nothing to follow, but the shared brightness works without it.
+        return sharedBrightness.map { .applyShared($0) } ?? .nothing
     }
 }
 
