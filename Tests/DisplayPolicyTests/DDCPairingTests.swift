@@ -35,6 +35,11 @@ final class DDCPairingTests: XCTestCase {
                        [2: 10, 3: 11])
     }
 
+    /// A service whose entry ID could not be read is never the current one: the display keeps its own.
+    func testAServiceWithoutAnEntryIDIsNeverTheCurrentOne() {
+        XCTAssertEqual(pairs([twin(3, current: 11)], [twinService(nil), twinService(11)]), [3: 11])
+    }
+
     /// The current service went away (unplugged, or made again after a wake): the display gets a new one.
     func testADisplayWhoseServiceIsGoneGetsANewOne() {
         XCTAssertEqual(pairs([twin(2, current: 10)], [twinService(12)]), [2: 12])

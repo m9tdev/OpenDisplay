@@ -47,7 +47,9 @@ public struct ReconnectMemory: Equatable, Sendable {
     }
 
     /// Call on each refresh of the display list. `before`: the list before the refresh; `after`: the list after it;
-    /// `turnedOnByApp`: the displays that the app turned on since the last refresh.
+    /// `turnedOnByApp`: the displays that the app turned on since the last refresh; `reconnected`: the displays with a
+    /// new DDC connection to the same monitor (for example after a wake). A reconnected synced display gets the shared
+    /// brightness again, as its level may have changed, but it did not turn on, so it keeps its dimming.
     ///
     /// A display missing from `after` went away: its dimming is remembered. A display new in `after` gets back the
     /// dimming it had when it went away, at least `minimumRestoredDimming`; a display that turns on again keeps its
@@ -57,7 +59,8 @@ public struct ReconnectMemory: Equatable, Sendable {
     /// refresh, or turned on by the app. The app marks a display as on as soon as it turns it on, so the lists alone do
     /// not show that change. The display's level may have changed while it was away or off (for example, another
     /// computer on another input), and the built-in brightness did not change, so nothing else syncs it.
-    public mutating func refresh(before: [Snapshot], after: [Snapshot], turnedOnByApp: Set<UInt32>) -> Plan {
+    public mutating func refresh(before: [Snapshot], after: [Snapshot], turnedOnByApp: Set<UInt32>,
+                                 reconnected: Set<UInt32> = []) -> Plan {
         let previous = Dictionary(before.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let remaining = Set(after.map(\.id))
         for display in before where !remaining.contains(display.id) {
@@ -68,14 +71,15 @@ public struct ReconnectMemory: Equatable, Sendable {
         var plan = Plan()
         for display in after where display.isEnabled {
             let old = previous[display.id]
-            let turnedOn = old?.isEnabled != true || turnedOnByApp.contains(display.id)
+            // Not decided yet: a reconnected display counts as turned on.
+            let turnedOn = old?.isEnabled != true || turnedOnByApp.contains(display.id) || reconnected.contains(display.id)
             if old == nil, let key = display.key {
                 plan.dimming[display.id] = max(dimming.removeValue(forKey: key) ?? 1, Self.minimumRestoredDimming)
             } else if turnedOn && display.dimming < Self.minimumRestoredDimming {
                 // The same display object, turned on again: it keeps its dimming, but not so low that it looks dead.
                 plan.dimming[display.id] = Self.minimumRestoredDimming
             }
-            if display.isSynced && turnedOn {
+            if display.isSynced && (turnedOn || reconnected.contains(display.id)) {
                 plan.resyncsBrightness = true
             }
         }

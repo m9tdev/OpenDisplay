@@ -113,6 +113,29 @@ final class ReconnectMemoryTests: XCTestCase {
         XCTAssertTrue(memory.refresh(before: [builtin, on], after: [builtin, on], turnedOnByApp: [2]).resyncsBrightness)
     }
 
+    /// A new DDC connection to the same monitor (after a wake): a synced display gets the shared brightness again.
+    func testASyncedMonitorWithANewConnectionIsSyncedAgain() {
+        var memory = ReconnectMemory()
+        let synced = Snapshot(id: 2, key: monitor, isEnabled: true, isSynced: true)
+        XCTAssertTrue(memory.refresh(before: [builtin, synced], after: [builtin, synced], turnedOnByApp: [],
+                                     reconnected: [2]).resyncsBrightness)
+    }
+
+    func testAnUnsyncedMonitorWithANewConnectionIsNotResynced() {
+        var memory = ReconnectMemory()
+        let monitor = Snapshot(id: 2, key: monitor, isEnabled: true)
+        XCTAssertFalse(memory.refresh(before: [builtin, monitor], after: [builtin, monitor], turnedOnByApp: [],
+                                      reconnected: [2]).resyncsBrightness)
+    }
+
+    /// It did not turn on: a display dimmed below the lowest restored dimming keeps the dimming its slider shows.
+    func testAMonitorWithANewConnectionKeepsItsDimming() {
+        var memory = ReconnectMemory()
+        let dim = Snapshot(id: 2, key: monitor, isEnabled: true, dimming: 0.02, isSynced: true)
+        XCTAssertNil(memory.refresh(before: [builtin, dim], after: [builtin, dim], turnedOnByApp: [],
+                                    reconnected: [2]).dimming[2])
+    }
+
     func testNoResyncWhenSyncedMonitorsStayedOn() {
         var memory = ReconnectMemory()
         let synced = Snapshot(id: 2, key: monitor, isEnabled: true, isSynced: true)

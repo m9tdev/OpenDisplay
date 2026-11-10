@@ -33,6 +33,7 @@ public struct DDCValue: Equatable, Sendable {
     /// A read sent to the monitor.
     public struct Read: Equatable, Sendable {
         let number: Int
+        var keepsShownOnFailure = false
     }
 
     /// What to do with the answer to a read.
@@ -45,12 +46,17 @@ public struct DDCValue: Equatable, Sendable {
         /// The app set a newer value since the read was sent: keep the app's value. `failed`: the monitor did not
         /// answer either.
         case outdated(failed: Bool)
+        /// The monitor did not answer a read that keeps the value shown when it fails (see `startRead`): keep the
+        /// value and its error state as they were before the read.
+        case unanswered
     }
 
-    /// Call when a read is sent.
-    public mutating func startRead() -> Read {
+    /// Call when a read is sent. `keepsShownOnFailure`: the app already shows a value it trusts (for example the
+    /// read after a new connection to the same monitor, such as after a wake), so a failed read keeps it, instead of
+    /// showing the failure: many monitors take writes but do not answer reads.
+    public mutating func startRead(keepsShownOnFailure: Bool = false) -> Read {
         reads += 1
-        return Read(number: reads)
+        return Read(number: reads, keepsShownOnFailure: keepsShownOnFailure)
     }
 
     /// The value to write for `level` (0...1). nil while the first read is in flight: the write waits for its answer,
@@ -84,6 +90,7 @@ public struct DDCValue: Equatable, Sendable {
         if write != nil && waitingOutdatesReads { readsBeforeLastWrite = reads }
         waiting = nil
         waitingOutdatesReads = false
+        // Not decided yet: `keepsShownOnFailure` is not used.
         if read.number <= readsBeforeLastWrite { return (.outdated(failed: current == nil || maximum == nil), write) }
         guard let current, let maximum else { return (.failed, write) }
         return (.show(current: current, level: maximum > 0 ? Double(current) / Double(maximum) : nil), write)

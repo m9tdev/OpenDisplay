@@ -180,6 +180,34 @@ final class DDCValueNewConnectionTests: XCTestCase {
         XCTAssertEqual(renewed.set(0.5), 50)
     }
 
+    /// After a wake, a monitor that takes writes but does not answer reads keeps the brightness the slider shows.
+    func testAFailedReadThatKeepsTheShownValueIsUnanswered() {
+        var value = DDCValue().droppingReads()
+        let read = value.startRead(keepsShownOnFailure: true)
+        XCTAssertEqual(value.finish(read, current: nil, maximum: nil).answer, .unanswered)
+    }
+
+    /// Also when the app wrote meanwhile (brightness sync after the wake).
+    func testAnOutdatedFailedReadThatKeepsTheShownValueIsUnanswered() {
+        var value = DDCValue().droppingReads()
+        let read = value.startRead(keepsShownOnFailure: true)
+        _ = value.set(0.5)
+        XCTAssertEqual(value.finish(read, current: nil, maximum: nil).answer, .unanswered)
+    }
+
+    func testAnAnsweredReadThatKeepsTheShownValueIsShown() {
+        var value = DDCValue().droppingReads()
+        let read = value.startRead(keepsShownOnFailure: true)
+        XCTAssertEqual(value.finish(read, current: 40, maximum: 100).answer, .show(current: 40, level: 0.4))
+    }
+
+    /// A display that turns on shows nothing yet: a failed read still shows the failure.
+    func testAnyOtherFailedReadFails() {
+        var value = DDCValue()
+        let read = value.startRead()
+        XCTAssertEqual(value.finish(read, current: nil, maximum: nil).answer, .failed)
+    }
+
     func testAReadOverTheNewConnectionIsShown() {
         var value = DDCValue()
         _ = value.startRead()
