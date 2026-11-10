@@ -1,4 +1,5 @@
 import AppKit
+import DisplayPolicy
 
 // Control rows for a flat menu: no submenus. They use the grid in `Layout`: a small icon in the icon
 // column, and the control or label from `Layout.controlInset` to the right edge.
@@ -40,6 +41,10 @@ final class SteppedSliderRowView: MenuRowView {
         slider.isContinuous = true
         slider.target = self
         slider.action = #selector(slid)
+        slider.onRelease = { [weak self] in
+            // Without a new choice, show the current one: an update can have come while the knob was held.
+            if self?.applyChoice() == false { self?.reload() }
+        }
 
         let low = Self.icon(lowSymbol)
         let high = Self.icon(highSymbol)
@@ -80,20 +85,27 @@ final class SteppedSliderRowView: MenuRowView {
         self.titles = titles
         slider.maxValue = Double(max(titles.count - 1, 1))
         slider.isEnabled = titles.count > 1
-        if let current, window?.currentEvent?.type != .leftMouseDragged {
+        if let current, slider.gesture.followsStoredValue {
             slider.doubleValue = Double(current)
             valueLabel.stringValue = titles[current]
         }
     }
 
     @objc private func slid() {
-        // Snap to a choice, show it, and apply it when the mouse goes up.
+        // Snap to a choice and show it. It applies when the mouse goes up, or at once without the mouse.
+        guard slider.gesture.moved(to: slider.doubleValue) else { return }
         let index = min(max(Int(slider.doubleValue.rounded()), 0), titles.count - 1)
         slider.doubleValue = Double(index)
         valueLabel.stringValue = titles.indices.contains(index) ? titles[index] : ""
-        if NSApp.currentEvent?.type != .leftMouseDragged {
-            apply(index)
-        }
+        applyChoice()
+    }
+
+    /// Returns whether it applied a choice.
+    @discardableResult private func applyChoice() -> Bool {
+        guard let choice = slider.gesture.choice(Int(slider.doubleValue.rounded()), current: choices().current)
+        else { return false }
+        apply(choice)
+        return true
     }
 
     private static func icon(_ symbol: String) -> NSImageView {
