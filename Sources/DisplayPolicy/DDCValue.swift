@@ -25,8 +25,9 @@ public struct DDCValue: Equatable, Sendable {
     /// The value for a new DDC connection to the same monitor: the reads sent over the old connection are dropped (their
     /// answers never reach `finish`), and the monitor's maximum stays.
     public func droppingReads() -> DDCValue {
-        // Not decided yet: starts over, as before.
-        DDCValue()
+        var value = DDCValue()
+        value.maximum = maximum
+        return value
     }
 
     /// A read sent to the monitor.

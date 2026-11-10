@@ -35,8 +35,10 @@ final class Display: Identifiable {
     @ObservationIgnored var brightnessDDC = DDCValue()
     @ObservationIgnored var volumeDDC = DDCValue()
     @ObservationIgnored var muteDDC = DDCValue()
-    /// Goes up when the DDC connection is replaced (see `MonitorLink`): answers to reads sent over the old one are dropped.
+    /// Goes up each time `ddc` changes: answers to reads sent over an earlier connection are dropped.
     @ObservationIgnored var connectionGeneration = 0
+    /// The key of the monitor the display's state belongs to, from the last refresh that checked it (see `MonitorLink`).
+    @ObservationIgnored var monitorKey: String?
     /// The monitor's DDC brightness maximum, or the usual one until a read tells it.
     var ddcMax: UInt16 { brightnessDDC.maximum ?? DDCValue.assumedMaximum }
     /// Software dimming: 1 is the normal image.
@@ -245,14 +247,16 @@ final class DisplayManager {
             MenuExpansion.shared.inherit(previous: storedSettingsKeys, current: keysForSettings)
         }
 
-        let ddc = DDCDiscovery.services(for: ids.filter { active.contains($0) })
+        // A display keeps its DDC service while it is still there: twin monitors without a serial number are otherwise
+        // paired in list order, which can change.
+        let ddc = DDCDiscovery.services(for: ids.filter { active.contains($0) }, current: byID.compactMapValues { $0.ddc?.entryID })
 
-        let before = byID.values.map { reconnectSnapshot($0) }
+        var before = byID.values.map { reconnectSnapshot($0) }
         var next: [Display] = []
         var replacedMonitors: Set<CGDirectDisplayID> = []
+        var resyncs: Set<CGDirectDisplayID> = []
         for id in ids {
             let display = byID[id] ?? Display(id: id, name: disabled[id] ?? Self.name(of: id))
-            let previousKey = display.rememberedKey
             display.rememberedKey = keys[id]
             display.settingsKey = keysForSettings[id]
             if changes.isChanging(id) {
@@ -269,24 +273,32 @@ final class DisplayManager {
                 // now keeps its slider position: its brightness is read again below, and the read keeps the position
                 // if the display is still as it shows.
                 let change = MonitorLink.change(
-                    from: MonitorLink(key: previousKey, connection: display.ddc.map { .init(entry: $0.entryID) }),
+                    from: MonitorLink(key: display.monitorKey, connection: display.ddc.map { .init(entry: $0.entryID) }),
                     to: MonitorLink(key: keys[id], connection: ddc[id].map { .init(entry: $0.entryID) }))
                 if change != .same {
                     Self.log.notice("Display \(id, privacy: .public): \(String(describing: change), privacy: .public)")
                 }
-                reset(display, MonitorLink.resets(for: change), connection: ddc[id])
+                if let key = keys[id] { display.monitorKey = key }
+                let resets = MonitorLink.resets(for: change)
+                reset(display, resets, connection: ddc[id])
                 if change == .monitorReplaced { replacedMonitors.insert(id) }
+                if resets.contains(.resync) { resyncs.insert(id) }
                 if display.ddc == nil { display.volume = nil }
             } else {
-                display.ddc = nil
+                setConnection(display, nil)
             }
             next.append(display)
         }
         // A display that went away and came back is a new display object, so its dimming starts at 1: it gets back
-        // what it had when it went away. Another monitor behind a display ID is new to brightness sync, like a display
-        // that turned on.
+        // what it had when it went away. Another monitor behind a display ID counts as the old one going away and the
+        // new one arriving. A display with a new DDC connection resyncs, like a display that turned on.
+        if !replacedMonitors.isEmpty {
+            let staying = before.filter { !replacedMonitors.contains($0.id) }
+            _ = reconnects.refresh(before: before, after: staying, turnedOnByApp: [])
+            before = staying
+        }
         let plan = reconnects.refresh(before: before, after: next.map { reconnectSnapshot($0) },
-                                      turnedOnByApp: turnedOnByApp.union(replacedMonitors))
+                                      turnedOnByApp: turnedOnByApp.union(resyncs))
         turnedOnByApp = []
         for display in next {
             if let dimming = plan.dimming[display.id] { display.dimming = dimming }
@@ -338,19 +350,17 @@ final class DisplayManager {
     /// Resets the state of `display` that no longer applies after its monitor or DDC connection changed (see
     /// `MonitorLink`). `connection`: the DDC service the refresh found for it.
     private func reset(_ display: Display, _ resets: MonitorLink.Resets, connection: DDCService?) {
-        if resets.contains(.connection) { display.ddc = connection }
+        if resets.contains(.connection) { setConnection(display, connection) }
         if resets.contains(.readValues) {
             display.brightness = nil
             display.volume = nil
         }
-        if resets.contains(.connectionState) {
-            display.connectionGeneration += 1
+        if resets.contains(.readValuesWhenReady) { readWhenReady(display) }
+        if resets.contains(.monitorState) {
             display.brightnessDDC = DDCValue()
             display.volumeDDC = DDCValue()
             display.muteDDC = DDCValue()
             display.capabilities = nil
-        }
-        if resets.contains(.monitorState) {
             display.supportsVolume = false
             display.isMuted = false
             display.contrast = nil
@@ -362,6 +372,32 @@ final class DisplayManager {
         if resets.contains(.dimming) {
             display.dimming = 1
             SoftwareDimming.forget(display.id)
+        }
+    }
+
+    /// Sets the DDC service of `display`. Answers to reads sent over the one it had are dropped.
+    private func setConnection(_ display: Display, _ connection: DDCService?) {
+        guard display.ddc !== connection else { return }
+        display.ddc = connection
+        display.connectionGeneration += 1
+        display.brightnessDDC = display.brightnessDDC.droppingReads()
+        display.volumeDDC = display.volumeDDC.droppingReads()
+        display.muteDDC = display.muteDDC.droppingReads()
+        // Empty while a read was in flight (see `readCapabilities`): its answer is dropped, so read them again.
+        if display.capabilities?.isEmpty == true { display.capabilities = nil }
+    }
+
+    /// Reads the brightness and the volume of `display` again once the monitor accepts DDC over its new connection.
+    /// Until then the menu keeps the values it shows.
+    private func readWhenReady(_ display: Display) {
+        let generation = display.connectionGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.ddcReadyDelay) { [weak self, weak display] in
+            MainActor.assumeIsolated {
+                guard let self, let display, self.byID[display.id] === display, display.isEnabled,
+                      display.connectionGeneration == generation else { return }
+                self.readBrightness(display)
+                self.readVolume(display)
+            }
         }
     }
 

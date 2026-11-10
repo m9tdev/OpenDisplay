@@ -60,8 +60,6 @@ public struct MonitorLink: Equatable, Sendable {
         /// Set the software dimming back to 1 and drop the saved color table, without writing it: it is the old
         /// monitor's.
         public static let dimming = Resets(rawValue: 1 << 5)
-        /// Previous rule, until the fix: the DDC maximums, reads in flight and capabilities.
-        public static let connectionState = Resets(rawValue: 1 << 6)
     }
 
     /// How the link changed from `old` (before the refresh) to `new` (what the refresh found). A missing key on either
@@ -72,7 +70,9 @@ public struct MonitorLink: Equatable, Sendable {
         case (nil, nil): return .same
         case (nil, _?): return .connectionAppeared
         case (_?, nil): return .connectionLost
-        case let (before?, after?): return before == after ? .same : .connectionReplaced
+        case let (before?, after?):
+            if let entry = before.entry, entry == after.entry { return .same }
+            return .connectionReplaced
         }
     }
 
@@ -82,9 +82,8 @@ public struct MonitorLink: Equatable, Sendable {
         switch change {
         case .same: return []
         case .connectionAppeared, .connectionLost: return [.connection, .readValues]
-        // Previous rules, until the fix.
-        case .connectionReplaced: return [.connection, .readValues, .connectionState]
-        case .monitorReplaced: return [.connection, .readValues, .connectionState, .monitorState, .dimming]
+        case .connectionReplaced: return [.connection, .readValuesWhenReady, .resync]
+        case .monitorReplaced: return [.connection, .readValues, .resync, .monitorState, .dimming]
         }
     }
 }

@@ -50,7 +50,12 @@ public enum DDCPairing {
             service.vendor == display.vendor && service.model == display.model
                 && (service.serial == nil || service.serial == display.serial)
         }
-        // Not decided yet: in list order only.
+        for display in displays {
+            guard let current = display.current, let match = unused.firstIndex(where: {
+                services[$0].entry == current && matches(display, services[$0])
+            }) else { continue }
+            result[display.id] = unused.remove(at: match)
+        }
         for display in displays where result[display.id] == nil {
             if let match = unused.firstIndex(where: { matches(display, services[$0]) }) {
                 result[display.id] = unused.remove(at: match)
