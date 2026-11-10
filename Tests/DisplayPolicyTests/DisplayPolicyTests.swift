@@ -289,3 +289,46 @@ final class RestoreOutcomeTests: XCTestCase {
         XCTAssertEqual(outcome(failures: []), DisplayPolicy.RestoreOutcome(retries: false, error: nil))
     }
 }
+
+/// The error shown once a physical display is on again, after an earlier attempt to turn one on failed.
+final class ErrorAfterRestoreTests: XCTestCase {
+    let restoreError = "Could not turn on Built-in Retina Display (error 1001)."
+
+    func testTheErrorOfTheFailedAttemptIsCleared() {
+        XCTAssertNil(DisplayPolicy.errorAfterRestore(lastError: restoreError, restoreError: restoreError))
+    }
+
+    func testADifferentErrorStays() {
+        // For example a failed resolution change after the failed attempt. OpenDisplay does not reach this state: any
+        // other error forgets the restore error. The function still keeps the other error.
+        let other = "Could not change the resolution."
+        XCTAssertEqual(DisplayPolicy.errorAfterRestore(lastError: other, restoreError: restoreError), other)
+    }
+
+    func testNoErrorStaysNoError() {
+        XCTAssertNil(DisplayPolicy.errorAfterRestore(lastError: nil, restoreError: restoreError))
+        XCTAssertNil(DisplayPolicy.errorAfterRestore(lastError: nil, restoreError: nil))
+    }
+
+    func testWithoutAFailedAttemptTheErrorStays() {
+        let other = "Could not turn on Display 2 (error 1000)."
+        XCTAssertEqual(DisplayPolicy.errorAfterRestore(lastError: other, restoreError: nil), other)
+    }
+}
+
+/// When the error of an earlier failed attempt to turn a display on is stale, after the check again of a later attempt.
+final class RestoreErrorIsStaleTests: XCTestCase {
+    func testADisplayThatTurnedOnMakesItStale() {
+        XCTAssertTrue(DisplayPolicy.restoreErrorIsStale(restored: 1, failures: [(2, "Could not turn on Display 2")]))
+    }
+
+    func testNothingToTurnOnMakesItStale() {
+        // The check again found nothing to turn on: a physical display is on again, for example the display came back
+        // by itself during the wait, or another one was plugged in.
+        XCTAssertTrue(DisplayPolicy.restoreErrorIsStale(restored: nil, failures: []))
+    }
+
+    func testAnotherFailureKeepsIt() {
+        XCTAssertFalse(DisplayPolicy.restoreErrorIsStale(restored: nil, failures: [(1, "Could not turn on Built-in")]))
+    }
+}
