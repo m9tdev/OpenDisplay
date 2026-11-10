@@ -8,7 +8,7 @@ enum DisplayControls {
     static func neededRows(for display: Display, manager: DisplayManager) -> [String] {
         guard display.isEnabled else { return [] }
         let id = display.id
-        let capabilities = display.capabilities ?? [:]
+        let capabilities = display.capabilities.codes
         var rows = ["brightness"]
         if display.supportsVolume { rows.append("volume") }
         if capabilities[VCP.contrast] != nil { rows.append("contrast") }
@@ -77,11 +77,11 @@ enum DisplayControls {
             return SegmentedRowView(
                 symbol: "cable.connector", label: "Input", visible: visible,
                 choices: {
-                    let inputs = display.capabilities?[VCP.input] ?? []
+                    let inputs = display.capabilities.codes[VCP.input] ?? []
                     return (inputs.map { inputName($0, vendor: CGDisplayVendorNumber(display.id)) }, display.input.flatMap { inputs.firstIndex(of: $0) })
                 },
                 apply: { index in
-                    let inputs = display.capabilities?[VCP.input] ?? []
+                    let inputs = display.capabilities.codes[VCP.input] ?? []
                     if inputs.indices.contains(index) { manager.setInput(display, inputs[index]) }
                 }
             )
@@ -90,11 +90,11 @@ enum DisplayControls {
             return SegmentedRowView(
                 symbol: "paintpalette", label: "Color Preset", visible: visible,
                 choices: {
-                    let presets = display.capabilities?[VCP.colorPreset] ?? []
+                    let presets = display.capabilities.codes[VCP.colorPreset] ?? []
                     return (presets.map(colorPresetName), display.colorPreset.flatMap { presets.firstIndex(of: $0) })
                 },
                 apply: { index in
-                    let presets = display.capabilities?[VCP.colorPreset] ?? []
+                    let presets = display.capabilities.codes[VCP.colorPreset] ?? []
                     if presets.indices.contains(index) { manager.setColorPreset(display, presets[index]) }
                 }
             )

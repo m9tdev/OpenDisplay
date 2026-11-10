@@ -51,8 +51,8 @@ final class Display: Identifiable {
     /// `nil` until read.
     var monitorSettings: [String: UInt16]?
 
-    /// The VCP codes the external display supports, with their allowed values (see `VCP.parse`). `nil` until read.
-    var capabilities: [UInt8: [UInt8]]?
+    /// The VCP codes the external display supports, with their allowed values (see `VCP.parse`), and the read of them.
+    var capabilities = MonitorCapabilities.unread
     /// 0...1. `nil` while we do not know the value yet.
     var contrast: Double?
     @ObservationIgnored var contrastMax: UInt16 = 100
@@ -333,7 +333,7 @@ final class DisplayManager {
         for display in displays where display.isEnabled && display.ddc != nil && display.volume == nil {
             readVolume(display)
         }
-        for display in displays where display.isEnabled && display.ddc != nil && display.capabilities == nil {
+        for display in displays where display.isEnabled && display.ddc != nil && display.capabilities.needsRead {
             readCapabilities(display)
         }
         observeBuiltinBrightness()
@@ -361,7 +361,7 @@ final class DisplayManager {
             display.brightnessDDC = DDCValue()
             display.volumeDDC = DDCValue()
             display.muteDDC = DDCValue()
-            display.capabilities = nil
+            display.capabilities = .unread
             display.supportsVolume = false
             display.isMuted = false
             display.contrast = nil
@@ -384,8 +384,7 @@ final class DisplayManager {
         display.brightnessDDC = display.brightnessDDC.droppingReads()
         display.volumeDDC = display.volumeDDC.droppingReads()
         display.muteDDC = display.muteDDC.droppingReads()
-        // Empty while a read was in flight (see `readCapabilities`): its answer is dropped, so read them again.
-        if display.capabilities?.isEmpty == true { display.capabilities = nil }
+        display.capabilities.connectionChanged()
     }
 
     /// Reads the brightness and the volume of `display` again once the monitor accepts DDC over its new connection.
@@ -699,7 +698,7 @@ final class DisplayManager {
         guard let ddc = display.ddc else { return }
         let generation = display.connectionGeneration
         for setting in BrightnessCalibration.monitorSettings
-        where display.capabilities?.isEmpty != false || display.capabilities?[setting.vcp] != nil {
+        where display.capabilities.maySupport(setting.vcp) {
             ddc.readLater(vcp: setting.vcp) { [weak display] result in
                 MainActor.assumeIsolated {
                     guard let display, display.connectionGeneration == generation, let result else { return }
@@ -1043,20 +1042,19 @@ final class DisplayManager {
     // MARK: External display settings (DDC)
 
     private func readCapabilities(_ display: Display) {
-        // Empty while reading, so a refresh does not start a second read. Nil after a failed read, so the next refresh tries again.
-        display.capabilities = [:]
+        display.capabilities.startRead()
         let generation = display.connectionGeneration
         display.ddc?.capabilitiesLater { [weak display] text in
             MainActor.assumeIsolated {
                 guard let display, display.connectionGeneration == generation else { return }
-                display.capabilities = text.map(VCP.parse(capabilities:))
+                display.capabilities.finishRead(text.map(VCP.parse(capabilities:)))
             }
         }
     }
 
     /// Reads the values in the Options submenu. The menu calls this when it opens, so they are ready in time.
     func readDDCSettings(_ display: Display) {
-        guard let ddc = display.ddc, let capabilities = display.capabilities else { return }
+        guard let ddc = display.ddc, case let .read(capabilities) = display.capabilities else { return }
         let generation = display.connectionGeneration
         if capabilities[VCP.contrast] != nil {
             ddc.readLater(vcp: VCP.contrast) { [weak display] result in
