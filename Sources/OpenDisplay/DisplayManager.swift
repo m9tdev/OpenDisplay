@@ -23,6 +23,13 @@ final class Display: Identifiable {
     /// The lowest part of the range dims the image in software (see `DisplayManager.setBrightness`).
     var brightness: Double?
     var brightnessError: String?
+    /// Set when macOS did not let the app dim the display in software (see `DimmingOutcome`).
+    var dimmingError: String?
+    /// The errors the menu shows under the display.
+    var errorMessage: String? {
+        let errors = [brightnessError, dimmingError].compactMap { $0 }
+        return errors.isEmpty ? nil : errors.joined(separator: ". ")
+    }
     /// 0...1. `nil` while we do not know the value yet.
     var volume: Double?
     var isMuted = false
@@ -325,7 +332,7 @@ final class DisplayManager {
 
         for display in displays where display.isEnabled && display.dimming < 1 {
             // A display that turned off and on again has its normal color table again.
-            SoftwareDimming.set(display.dimming, for: display.id)
+            applyDimming(display, display.dimming, slider: display.brightness)
         }
         for display in displays where display.isEnabled && (display.brightness == nil || display.ddc == nil) {
             readBrightness(display)
@@ -372,6 +379,7 @@ final class DisplayManager {
         }
         if resets.contains(.dimming) {
             display.dimming = 1
+            display.dimmingError = nil
             SoftwareDimming.forget(display.id)
         }
     }
@@ -483,10 +491,8 @@ final class DisplayManager {
 
     /// Sets one display, without sync.
     private func applyBrightness(_ display: Display, _ value: Double) {
-        display.brightness = value
         let (level, dimming) = display.brightnessControl.split(value)
-        display.dimming = dimming
-        SoftwareDimming.set(dimming, for: display.id)
+        applyDimming(display, dimming, slider: value)
         guard let level else { return }
         if display.isBuiltin {
             lastBuiltinBacklight = Float(level)
@@ -497,6 +503,16 @@ final class DisplayManager {
                 display.ddc?.setLater(vcp: VCP.brightness, value: raw)
             }
         }
+    }
+
+    /// Dims `display` in software by `dimming` (1: the normal image), for the slider position `slider` (nil: none known
+    /// yet). If macOS does not let the app dim it, the display shows the brightness it really has, and an error.
+    private func applyDimming(_ display: Display, _ dimming: Double, slider: Double?) {
+        let dimmed = SoftwareDimming.set(dimming, for: display.id)
+        let outcome = DimmingOutcome(control: display.brightnessControl, slider: slider, dimming: dimming, dimmed: dimmed)
+        if display.brightness != outcome.slider { display.brightness = outcome.slider }
+        display.dimming = outcome.dimming
+        if display.dimmingError != outcome.error { display.dimmingError = outcome.error }
     }
 
     /// Sets the DDC brightness `level` (0...1) of an external display directly, for the calibration: the app does not
