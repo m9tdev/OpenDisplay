@@ -270,8 +270,10 @@ public struct CalibrationRecord: Codable, Equatable, Sendable {
 
     /// Puts back what the calibration changed when it ends: with Cancel or Save, when a display goes away, or when
     /// the app quits. The built-in display can be off by now (the app turned it off, which ended the calibration).
-    /// Then its part waits for it as after a crash (see `restoreUnfinished`). With the lid closed, the built-in
-    /// display is still on in the app until the next refresh, so everything comes back now.
+    /// Then its part waits for it as after a crash (see `restoreUnfinished`). A synced external display gets its own
+    /// value back now, as one not synced does: it would otherwise keep the calibration's level until the built-in
+    /// display comes back, which may never happen. With the lid closed, the built-in display is still on in the app
+    /// until the next refresh, so everything comes back now.
     /// - Parameters:
     ///   - builtin: The built-in display is on in the app.
     ///   - synced: The external display follows the built-in display.
@@ -280,6 +282,7 @@ public struct CalibrationRecord: Codable, Equatable, Sendable {
     /// - Returns: What to put back now, and the record of what waits, or nil when nothing waits.
     public func restoreAtEnd(builtin: Bool, synced: Bool, externalBrightness: Double?)
         -> (now: Restore, pending: CalibrationRecord?) {
-        restoreUnfinished(builtin: builtin, external: synced ? .synced : .own(brightness: externalBrightness))
+        restoreUnfinished(builtin: builtin,
+                          external: synced && builtin ? .synced : .own(brightness: externalBrightness))
     }
 }
