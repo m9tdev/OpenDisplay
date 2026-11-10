@@ -5,6 +5,8 @@ import IOKit
 /// One external display that answers DDC/CI over an IOAVService.
 final class DDCService: @unchecked Sendable {
     let service: CFTypeRef
+    /// The registry entry ID of the service, so a refresh can tell a new connection to the display (see `MonitorLink`).
+    let entryID: UInt64
     private let queue = DispatchQueue(label: "dev.m9t.OpenDisplay.ddc")
     private let lock = NSLock()
     /// Newest value to write for each VCP code.
@@ -14,8 +16,9 @@ final class DDCService: @unchecked Sendable {
     private static let chipAddress: UInt32 = 0x37
     private static let dataAddress: UInt32 = 0x51
 
-    init(service: CFTypeRef) {
+    init(service: CFTypeRef, entryID: UInt64) {
         self.service = service
+        self.entryID = entryID
     }
 
     /// Queue a write. If a write is in progress, only the newest value for each VCP code is sent next.
@@ -248,7 +251,11 @@ enum DDCDiscovery {
 
         // Only open a service for a display that is on. Opening one for a display that is off may wake it.
         func service(_ candidate: Candidate) -> DDCService? {
-            create(kCFAllocatorDefault, candidate.entry).map { DDCService(service: $0.takeRetainedValue()) }
+            var entryID: UInt64 = 0
+            IORegistryEntryGetRegistryEntryID(candidate.entry, &entryID)
+            return create(kCFAllocatorDefault, candidate.entry).map {
+                DDCService(service: $0.takeRetainedValue(), entryID: entryID)
+            }
         }
 
         var result: [CGDirectDisplayID: DDCService] = [:]

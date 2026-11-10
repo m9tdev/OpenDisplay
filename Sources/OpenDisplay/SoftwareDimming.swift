@@ -36,6 +36,12 @@ enum SoftwareDimming {
         CGSetDisplayTransferByTable(id, UInt32(table.red.count), &table.red, &table.green, &table.blue)
     }
 
+    /// Drops the saved table without writing it, for a display ID that now belongs to another monitor: the table is the
+    /// old monitor's.
+    static func forget(_ id: CGDirectDisplayID) {
+        originals[id] = nil
+    }
+
     static func restoreAll() {
         originals.keys.forEach(restore)
     }

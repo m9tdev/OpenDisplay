@@ -52,12 +52,23 @@ public struct MonitorLink: Equatable, Sendable {
     /// How the link changed from `old` (before the refresh) to `new` (what the refresh found). A missing key on either
     /// side cannot tell another monitor, so only the connections are compared then.
     public static func change(from old: MonitorLink, to new: MonitorLink) -> Change {
-        // Not decided yet: a refresh keeps the display's state, as before.
-        .same
+        if let before = old.key, let after = new.key, before != after { return .monitorReplaced }
+        switch (old.connection, new.connection) {
+        case (nil, nil): return .same
+        case (nil, _?): return .connectionAppeared
+        case (_?, nil): return .connectionLost
+        case let (before?, after?): return before == after ? .same : .connectionReplaced
+        }
     }
 
-    /// What a refresh resets for `change`.
+    /// What a refresh resets for `change`. The same monitor keeps its dimming and what the app knows about it; a new
+    /// connection gets its own reads.
     public static func resets(for change: Change) -> Resets {
-        []
+        switch change {
+        case .same: return []
+        case .connectionAppeared, .connectionLost: return [.connection, .readValues]
+        case .connectionReplaced: return [.connection, .readValues, .connectionState]
+        case .monitorReplaced: return [.connection, .readValues, .connectionState, .monitorState, .dimming]
+        }
     }
 }
