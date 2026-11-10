@@ -131,6 +131,74 @@ final class PresetReportTests: XCTestCase {
         XCTAssertNil(message.text)
     }
 
+    func testApplyGoesFromIdleToApplyingToShowingTheMessage() {
+        var message = PresetPolicy.ApplyMessage()
+        XCTAssertEqual(message.phase, .idle)
+        let run = message.start()
+        XCTAssertEqual(message.phase, .applying(run: run))
+        XCTAssertNil(message.text, "no message while Apply runs")
+        message.finish(run, message: "Skipped Dell: not connected.")
+        XCTAssertEqual(message.phase, .showing("Skipped Dell: not connected."))
+    }
+
+    func testAnApplyThatDidEverythingEndsIdle() {
+        var message = PresetPolicy.ApplyMessage()
+        let run = message.start()
+        message.finish(run, message: nil)
+        XCTAssertEqual(message.phase, .idle)
+    }
+
+    func testANewApplyDropsTheOldMessage() {
+        var message = PresetPolicy.ApplyMessage()
+        let first = message.start()
+        message.finish(first, message: "Skipped Dell: not connected.")
+        let second = message.start()
+        XCTAssertNotEqual(first, second)
+        XCTAssertEqual(message.phase, .applying(run: second))
+        XCTAssertNil(message.text)
+    }
+
+    func testSaveDuringAnApplyKeepsItsResult() {
+        // Save clears only a message that shows. The Apply still going shows its result when it finishes.
+        var message = PresetPolicy.ApplyMessage()
+        let run = message.start()
+        message.clear()
+        XCTAssertEqual(message.phase, .applying(run: run))
+        message.finish(run, message: "Skipped Dell: not connected.")
+        XCTAssertEqual(message.text, "Skipped Dell: not connected.")
+    }
+
+    func testClosingTheWindowEndsEveryPhase() {
+        var message = PresetPolicy.ApplyMessage()
+        message.close()
+        XCTAssertEqual(message.phase, .idle)
+        let first = message.start()
+        message.close()
+        XCTAssertEqual(message.phase, .idle)
+        let second = message.start()
+        message.finish(second, message: "Skipped Dell: not connected.")
+        message.close()
+        XCTAssertEqual(message.phase, .idle)
+        // A run dropped by a close does not match a later one.
+        let third = message.start()
+        XCTAssertNotEqual(first, third)
+        message.finish(first, message: "Nothing changed: Dell is not connected.")
+        XCTAssertEqual(message.phase, .applying(run: third))
+    }
+
+    func testAResultWithoutARunningApplyIsIgnored() {
+        var message = PresetPolicy.ApplyMessage()
+        let run = message.start()
+        message.finish(run, message: "Skipped Dell: not connected.")
+        // The same run again, or a run that never started: nothing is applying, so the message stays.
+        message.finish(run, message: "Nothing changed: Dell is not connected.")
+        message.finish(run + 1, message: "Nothing changed: Dell is not connected.")
+        XCTAssertEqual(message.phase, .showing("Skipped Dell: not connected."))
+        message.clear()
+        message.finish(run, message: "Nothing changed: Dell is not connected.")
+        XCTAssertEqual(message.phase, .idle)
+    }
+
     // MARK: Report
 
     func testTheReportHasEveryMessage() {

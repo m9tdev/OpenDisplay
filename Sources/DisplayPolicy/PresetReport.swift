@@ -55,37 +55,61 @@ extension PresetPolicy {
         messages.isEmpty ? nil : messages.joined(separator: " ")
     }
 
-    /// The message Settings shows for Apply. Apply finishes later, so its result comes in a callback: each Apply gets a
-    /// run number from `start`, and passes it to `finish`.
+    /// The message Settings shows for Apply, and whether an Apply is still running. Apply finishes later, so its
+    /// result comes in a callback: each Apply gets a run number from `start`, and passes it to `finish`.
+    ///
+    /// ```
+    /// idle ──start──▶ applying(run) ──finish(run, message)──▶ showing(message), or idle without a message
+    ///                   │  ▲ start: a newer run replaces it
+    ///                   └──┴─ clear: stays applying, so its result still shows
+    /// showing ──clear──▶ idle            any phase ──close──▶ idle (the runs still going are dropped)
+    /// ```
     public struct ApplyMessage: Equatable, Sendable {
-        /// The message to show, `nil` for none.
-        public private(set) var text: String?
-        private var run = 0
+        public enum Phase: Equatable, Sendable {
+            /// No Apply is running, and there is no message.
+            case idle
+            /// Apply `run` is running. A message shows only once it finishes.
+            case applying(run: Int)
+            /// The last Apply finished with this message.
+            case showing(String)
+        }
+
+        public private(set) var phase: Phase = .idle
+        /// The number of the last run handed out. Runs that were replaced or dropped keep their old numbers, so their
+        /// results never match the run of `applying`.
+        private var lastRun = 0
 
         public init() {}
 
-        /// An Apply starts: the old message goes. Returns the number of this run.
-        public mutating func start() -> Int {
-            run += 1
-            text = nil
-            return run
+        /// The message to show, `nil` for none.
+        public var text: String? {
+            if case .showing(let message) = phase { return message }
+            return nil
         }
 
-        /// An Apply finished with `message`. Ignored when another Apply started since, or the window closed.
+        /// An Apply starts: the old message goes, and so does the result of the run still going. Returns the number
+        /// of this run.
+        public mutating func start() -> Int {
+            lastRun += 1
+            phase = .applying(run: lastRun)
+            return lastRun
+        }
+
+        /// An Apply finished with `message`, `nil` when it did everything. Ignored unless it is the run that is
+        /// applying: another Apply started since, or the window closed.
         public mutating func finish(_ run: Int, message: String?) {
-            guard run == self.run else { return }
-            text = message
+            guard phase == .applying(run: run) else { return }
+            phase = message.map(Phase.showing) ?? .idle
         }
 
         /// The window closed: its message goes, and so do the results of the runs still going.
         public mutating func close() {
-            run += 1
-            text = nil
+            phase = .idle
         }
 
-        /// Another action (Save) makes the message old.
+        /// Another action (Save) makes the message old. A run still going is kept: its result shows when it finishes.
         public mutating func clear() {
-            text = nil
+            if case .showing = phase { phase = .idle }
         }
     }
 
