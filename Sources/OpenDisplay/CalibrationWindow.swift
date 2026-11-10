@@ -194,8 +194,8 @@ final class CalibrationSession {
         }
         // A first DDC read that was pending at the start has ended by now, with the level from before the
         // calibration: the reads and the calibration's writes go to the monitor in order.
-        let state: CalibrationRecord.External = manager.isSynced(external) ? .synced : .own(brightness: external.brightness)
-        let (now, pending) = record.restoreAtEnd(builtin: builtin.isEnabled, external: state)
+        let (now, pending) = record.restoreAtEnd(builtin: builtin.isEnabled, synced: manager.isSynced(external),
+                                                 externalBrightness: external.brightness)
         Self.apply(now, builtin: builtin, external: external, manager: manager)
         // What waits for the built-in display comes back with it, as after a crash (see `restoreUnfinished`).
         if let pending {

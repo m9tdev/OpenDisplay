@@ -443,27 +443,45 @@ final class CalibrationPolicyTests: XCTestCase {
 
     func testAtTheEndWithTheBuiltinDisplayOnEverythingComesBackAndTheRecordGoes() {
         // Also with the lid closed: the built-in display is still on in the app until the next refresh.
-        let (now, pending) = record.restoreAtEnd(builtin: true, external: .own(brightness: 0.9))
-        XCTAssertEqual(now, record.restore(external: .own(brightness: 0.9)))
+        let (now, pending) = record.restoreAtEnd(builtin: true, synced: false, externalBrightness: 0.9)
+        XCTAssertEqual(now, Restore(autoBrightness: true, trueTone: true, builtinBrightness: 0.6, externalBrightness: 0.45))
+        XCTAssertNil(pending)
+    }
+
+    func testAtTheEndWithTheBuiltinDisplayOnAnExternalWhoseFirstReadWasPendingGetsTheAppsValue() {
+        let unknown = CalibrationRecord(autoBrightness: true, trueTone: true, builtinBrightness: 0.6,
+                                        externalKey: "4C2D-0E36-1234", externalBrightness: nil)
+        let (now, pending) = unknown.restoreAtEnd(builtin: true, synced: false, externalBrightness: 0.7)
+        XCTAssertEqual(now.externalBrightness, 0.7)
         XCTAssertNil(pending)
     }
 
     func testAtTheEndWithTheBuiltinDisplayOnASyncedExternalFollowsItAndNothingWaits() {
-        let (now, pending) = record.restoreAtEnd(builtin: true, external: .synced)
-        XCTAssertEqual(now, record.restore(external: .synced))
+        let (now, pending) = record.restoreAtEnd(builtin: true, synced: true, externalBrightness: 0.9)
+        XCTAssertEqual(now, Restore(autoBrightness: true, trueTone: true, builtinBrightness: 0.6, externalBrightness: nil))
         XCTAssertNil(pending)
     }
 
-    func testAtTheEndWithTheBuiltinDisplayOffASyncedExternalWaitsForIt() {
-        // The app turned the built-in display off during the calibration, which ended the calibration.
-        let (now, pending) = record.restoreAtEnd(builtin: false, external: .synced)
-        XCTAssertEqual(now, Restore(autoBrightness: false, trueTone: true, builtinBrightness: nil, externalBrightness: nil))
+    func testAtTheEndWithTheBuiltinDisplayOffASyncedExternalGetsItsValueBackNow() {
+        // The app turned the built-in display off during the calibration, which ended the calibration. The built-in
+        // display may stay off, so the synced display must not keep the calibration's level until it comes back.
+        let (now, pending) = record.restoreAtEnd(builtin: false, synced: true, externalBrightness: 0.9)
+        XCTAssertEqual(now, Restore(autoBrightness: false, trueTone: true, builtinBrightness: nil, externalBrightness: 0.45))
         XCTAssertEqual(pending, CalibrationRecord(autoBrightness: true, trueTone: false, builtinBrightness: 0.6,
-                                                  externalKey: "4C2D-0E36-1234", externalBrightness: 0.45))
+                                                  externalKey: "4C2D-0E36-1234", externalBrightness: nil))
+    }
+
+    func testAtTheEndWithTheBuiltinDisplayOffASyncedExternalWhoseFirstReadWasPendingGetsTheAppsValue() {
+        let unknown = CalibrationRecord(autoBrightness: true, trueTone: true, builtinBrightness: 0.6,
+                                        externalKey: "4C2D-0E36-1234", externalBrightness: nil)
+        let (now, pending) = unknown.restoreAtEnd(builtin: false, synced: true, externalBrightness: 0.7)
+        XCTAssertEqual(now.externalBrightness, 0.7)
+        XCTAssertEqual(pending?.builtinBrightness, 0.6)
+        XCTAssertNil(pending?.externalBrightness)
     }
 
     func testAtTheEndWithTheBuiltinDisplayOffItsPartWaits() {
-        let (now, pending) = record.restoreAtEnd(builtin: false, external: .own(brightness: 0.9))
+        let (now, pending) = record.restoreAtEnd(builtin: false, synced: false, externalBrightness: 0.9)
         XCTAssertEqual(now, Restore(autoBrightness: false, trueTone: true, builtinBrightness: nil, externalBrightness: 0.45))
         XCTAssertEqual(pending, CalibrationRecord(autoBrightness: true, trueTone: false, builtinBrightness: 0.6,
                                                   externalKey: "4C2D-0E36-1234", externalBrightness: nil))
@@ -472,14 +490,14 @@ final class CalibrationPolicyTests: XCTestCase {
     func testAtTheEndWithTheBuiltinDisplayOffAnExternalWhoseFirstReadWasPendingGetsItsValueBack() {
         let unknown = CalibrationRecord(autoBrightness: true, trueTone: true, builtinBrightness: 0.6,
                                         externalKey: "4C2D-0E36-1234", externalBrightness: nil)
-        let (now, pending) = unknown.restoreAtEnd(builtin: false, external: .own(brightness: 0.7))
+        let (now, pending) = unknown.restoreAtEnd(builtin: false, synced: false, externalBrightness: 0.7)
         XCTAssertEqual(now.externalBrightness, 0.7)
         XCTAssertEqual(pending?.builtinBrightness, 0.6)
         XCTAssertNil(pending?.externalBrightness)
     }
 
     func testWhatWaitsAtTheEndComesBackWithTheBuiltinDisplay() throws {
-        let pending = try XCTUnwrap(record.restoreAtEnd(builtin: false, external: .synced).pending)
+        let pending = try XCTUnwrap(record.restoreAtEnd(builtin: false, synced: true, externalBrightness: 0.9).pending)
         let (now, rest) = pending.restoreUnfinished(builtin: true, external: .synced)
         XCTAssertEqual(now, Restore(autoBrightness: true, trueTone: false, builtinBrightness: 0.6, externalBrightness: nil))
         XCTAssertNil(rest)
