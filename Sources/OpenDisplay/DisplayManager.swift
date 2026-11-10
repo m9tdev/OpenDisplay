@@ -628,7 +628,7 @@ final class DisplayManager {
     private func syncFromBuiltin(_ notified: Float? = nil) {
         // The calibration sets the built-in brightness itself, and the external display must not follow it.
         guard !isCalibrating else {
-            if let notified { builtinChangedWhileCalibrating?(notified) }
+            if let notified { calibrationBuiltinChanged?(notified) }
             return
         }
         guard let builtin = displays.first(where: { $0.isBuiltin && $0.isEnabled }) else { return }
@@ -651,11 +651,12 @@ final class DisplayManager {
         didSet { CalibrationStore.save(calibrations) }
     }
 
+    /// Set exactly while the calibration window controls the brightness: it gets each new built-in brightness that
+    /// macOS reports.
+    @ObservationIgnored var calibrationBuiltinChanged: (@MainActor (Float) -> Void)?
     /// True while the calibration window controls the brightness. Then brightness sync stops, and the brightness
     /// keys and other brightness changes wait (see `CalibrationPolicy`).
-    @ObservationIgnored var isCalibrating = false
-    /// While calibrating: gets each new built-in brightness that macOS reports.
-    @ObservationIgnored var builtinChangedWhileCalibrating: (@MainActor (Float) -> Void)?
+    var isCalibrating: Bool { calibrationBuiltinChanged != nil }
 
     func calibration(for display: Display) -> BrightnessCalibration? {
         calibrations[display.modelKey]
