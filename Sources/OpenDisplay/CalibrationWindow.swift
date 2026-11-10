@@ -244,7 +244,8 @@ final class CalibrationSession {
         if restore.trueTone {
             PrivateAPI.trueToneClient()?.setValue(true, forKey: "enabled")
         }
-        // The built-in display first: it also sets a synced external display.
+        // The built-in display first: it also sets a synced external display. At the end of a calibration, its
+        // built-in display can be off by now.
         if let brightness = restore.builtinBrightness, let builtin, builtin.isEnabled {
             manager.setBrightness(builtin, to: brightness)
         }

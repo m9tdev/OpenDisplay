@@ -86,6 +86,10 @@ public struct CalibrationFlow: Equatable, Sendable {
             case .external: .externalBrighter(slider: 1)
             }
         case .move(let value):
+            // Inside the slider's range, as the slider itself keeps it: at 0, for example, the maximum of a brighter
+            // external display would be infinite (see `CalibrationTop.sliderRange`).
+            guard let range = slider?.range else { return }
+            let value = min(max(value, range.lowerBound), range.upperBound)
             switch step {
             case .lowest: lowestSlider = value
             case .top:

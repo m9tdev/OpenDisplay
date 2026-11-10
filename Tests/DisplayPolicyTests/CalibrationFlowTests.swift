@@ -95,9 +95,9 @@ final class CalibrationFlowTests: XCTestCase {
 
     func testNoStepPastTheTopHasTheBrighterDisplayUnchosen() {
         // Every sequence of up to 6 events from the start: past the top step, a choice was always made, and the slider
-        // is inside its range.
+        // is inside its range, also after a value outside it (0.005 is outside only the built-in display's ranges).
         let events: [CalibrationFlow.Event] = [.next, .back, .startAgain, .choose(.builtin), .choose(.external),
-                                               .choose(.same), .move(0.4), .move(1)]
+                                               .choose(.same), .move(0.4), .move(0.005), .move(1.5)]
         for usesDDC in [true, false] {
             var flows = [CalibrationFlow(usesDDC: usesDDC)]
             for _ in 0..<6 {
