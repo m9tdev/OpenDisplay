@@ -393,12 +393,29 @@ final class CalibrationPolicyTests: XCTestCase {
 
     func testASyncedExternalWaitsForTheBuiltinDisplay() throws {
         // A synced external display gets its brightness from the built-in one.
-        let pending = try XCTUnwrap(record.restoreUnfinished(builtin: false, external: .synced).pending)
+        let (first, waiting) = record.restoreUnfinished(builtin: false, external: .synced)
+        XCTAssertEqual(first, Restore(autoBrightness: false, trueTone: true, builtinBrightness: nil, externalBrightness: nil))
+        let pending = try XCTUnwrap(waiting)
         XCTAssertEqual(pending.builtinBrightness, 0.6)
         XCTAssertEqual(pending.externalBrightness, 0.45)
         let (now, rest) = pending.restoreUnfinished(builtin: true, external: .synced)
         XCTAssertEqual(now.builtinBrightness, 0.6)
         XCTAssertNil(rest)
+    }
+
+    func testASyncedExternalWithTheBuiltinDisplayFollowsItAndNothingWaits() {
+        let (now, pending) = record.restoreUnfinished(builtin: true, external: .synced)
+        XCTAssertEqual(now, Restore(autoBrightness: true, trueTone: true, builtinBrightness: 0.6, externalBrightness: nil))
+        XCTAssertNil(pending)
+    }
+
+    func testAnExternalNoLongerSyncedGetsItsWaitingValueBack() throws {
+        // The external display waited for the built-in one, then the user turned the sync off.
+        let pending = try XCTUnwrap(record.restoreUnfinished(builtin: false, external: .synced).pending)
+        let (now, rest) = pending.restoreUnfinished(builtin: false, external: .own(brightness: nil))
+        XCTAssertEqual(now, Restore(autoBrightness: false, trueTone: false, builtinBrightness: nil, externalBrightness: 0.45))
+        XCTAssertEqual(rest, CalibrationRecord(autoBrightness: true, trueTone: false, builtinBrightness: 0.6,
+                                               externalKey: "4C2D-0E36-1234", externalBrightness: nil))
     }
 
     func testWhileNoDisplayIsBackNothingChanges() throws {
