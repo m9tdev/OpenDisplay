@@ -8,12 +8,22 @@
 public struct MonitorLink: Equatable, Sendable {
     /// Identifies the monitor (vendor, model and serial number, see `DisplayKey`). `nil` when macOS does not report it.
     public var key: String?
-    /// Identifies the DDC connection: the registry entry ID of its service. `nil` without DDC.
-    public var connection: UInt64?
+    /// The DDC connection. `nil` without DDC.
+    public var connection: Connection?
 
-    public init(key: String?, connection: UInt64?) {
+    public init(key: String?, connection: Connection?) {
         self.key = key
         self.connection = connection
+    }
+
+    /// A DDC connection, identified by the registry entry ID of its service. `entry` is `nil` when the ID could not be
+    /// read: such a connection is never the same as another.
+    public struct Connection: Equatable, Sendable {
+        public var entry: UInt64?
+
+        public init(entry: UInt64?) {
+            self.entry = entry
+        }
     }
 
     /// How the link of a display changed across a refresh.
@@ -34,19 +44,24 @@ public struct MonitorLink: Equatable, Sendable {
         public let rawValue: Int
         public init(rawValue: Int) { self.rawValue = rawValue }
 
-        /// Use the DDC connection the refresh found (or none), instead of the one the display had.
+        /// Use the DDC connection the refresh found (or none), instead of the one the display had. Answers to reads
+        /// sent over the old connection are dropped.
         public static let connection = Resets(rawValue: 1 << 0)
-        /// Read the brightness and the volume again.
+        /// Read the brightness and the volume again now, showing nothing until they answer.
         public static let readValues = Resets(rawValue: 1 << 1)
-        /// Forget what came over the old connection: the DDC maximums, the reads in flight (their answers are dropped),
-        /// and the capabilities (read again).
-        public static let connectionState = Resets(rawValue: 1 << 2)
-        /// Forget what only the old monitor had: volume support, mute, contrast, color preset, input and the monitor
-        /// settings the calibration reads.
-        public static let monitorState = Resets(rawValue: 1 << 3)
+        /// Keep showing the brightness and the volume, and read them again once the monitor accepts DDC (it may not
+        /// right after a wake).
+        public static let readValuesWhenReady = Resets(rawValue: 1 << 2)
+        /// Apply the shared brightness again, as for a display that turned on: the monitor's level may have changed.
+        public static let resync = Resets(rawValue: 1 << 3)
+        /// Forget what only the old monitor had: its DDC maximums, capabilities, volume support, mute, contrast,
+        /// color preset, input and the monitor settings the calibration reads.
+        public static let monitorState = Resets(rawValue: 1 << 4)
         /// Set the software dimming back to 1 and drop the saved color table, without writing it: it is the old
         /// monitor's.
-        public static let dimming = Resets(rawValue: 1 << 4)
+        public static let dimming = Resets(rawValue: 1 << 5)
+        /// Previous rule, until the fix: the DDC maximums, reads in flight and capabilities.
+        public static let connectionState = Resets(rawValue: 1 << 6)
     }
 
     /// How the link changed from `old` (before the refresh) to `new` (what the refresh found). A missing key on either
@@ -62,11 +77,12 @@ public struct MonitorLink: Equatable, Sendable {
     }
 
     /// What a refresh resets for `change`. The same monitor keeps its dimming and what the app knows about it; a new
-    /// connection gets its own reads.
+    /// connection gets its own reads; another monitor starts like a display that just arrived.
     public static func resets(for change: Change) -> Resets {
         switch change {
         case .same: return []
         case .connectionAppeared, .connectionLost: return [.connection, .readValues]
+        // Previous rules, until the fix.
         case .connectionReplaced: return [.connection, .readValues, .connectionState]
         case .monitorReplaced: return [.connection, .readValues, .connectionState, .monitorState, .dimming]
         }

@@ -6,9 +6,16 @@ final class MonitorLinkTests: XCTestCase {
     let monitor = "4C2D-0E36-1234"
     let other = "4C2D-0E36-5678"
 
+    /// A connection whose registry entry ID could not be read.
+    static let unreadEntry: UInt64 = .max
+
+    /// `nil`: no DDC; `unreadEntry`: DDC, without an entry ID.
+    func link(_ key: String?, _ entry: UInt64?) -> MonitorLink {
+        MonitorLink(key: key, connection: entry.map { MonitorLink.Connection(entry: $0 == Self.unreadEntry ? nil : $0) })
+    }
+
     func change(_ oldKey: String?, _ oldConnection: UInt64?, to newKey: String?, _ newConnection: UInt64?) -> MonitorLink.Change {
-        MonitorLink.change(from: MonitorLink(key: oldKey, connection: oldConnection),
-                           to: MonitorLink(key: newKey, connection: newConnection))
+        MonitorLink.change(from: link(oldKey, oldConnection), to: link(newKey, newConnection))
     }
 
     // MARK: Change
@@ -55,6 +62,13 @@ final class MonitorLinkTests: XCTestCase {
         XCTAssertEqual(change(nil, nil, to: monitor, 7), .connectionAppeared)
     }
 
+    /// Two connections whose entry IDs could not be read may be different connections.
+    func testConnectionsWithoutAnEntryIDAreNeverTheSame() {
+        XCTAssertEqual(change(monitor, Self.unreadEntry, to: monitor, Self.unreadEntry), .connectionReplaced)
+        XCTAssertEqual(change(monitor, 7, to: monitor, Self.unreadEntry), .connectionReplaced)
+        XCTAssertEqual(change(monitor, Self.unreadEntry, to: monitor, 7), .connectionReplaced)
+    }
+
     // MARK: Resets
 
     func testTheSameLinkKeepsEverything() {
@@ -68,16 +82,19 @@ final class MonitorLinkTests: XCTestCase {
         }
     }
 
-    func testANewConnectionDropsWhatCameOverTheOldOne() {
+    /// After a wake the monitor may not accept DDC yet: the slider keeps its value until a later read, and a synced
+    /// display gets the shared brightness again, as when it turns on.
+    func testANewConnectionReadsWhenTheMonitorIsReadyAndResyncs() {
         let resets = MonitorLink.resets(for: .connectionReplaced)
-        XCTAssertEqual(resets, [.connection, .readValues, .connectionState])
+        XCTAssertEqual(resets, [.connection, .readValuesWhenReady, .resync])
+        XCTAssertFalse(resets.contains(.readValues), "the slider keeps its value until the monitor answers")
         XCTAssertFalse(resets.contains(.dimming), "the same monitor keeps its dimming")
         XCTAssertFalse(resets.contains(.monitorState), "the same monitor keeps what the app knows about it")
     }
 
     func testAnotherMonitorResetsEverything() {
         XCTAssertEqual(MonitorLink.resets(for: .monitorReplaced),
-                       [.connection, .readValues, .connectionState, .monitorState, .dimming])
+                       [.connection, .readValues, .resync, .monitorState, .dimming])
     }
 
     /// The display keeps its ID: the old monitor's color table must not be written onto the new one.

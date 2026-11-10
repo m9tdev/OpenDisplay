@@ -268,8 +268,9 @@ final class DisplayManager {
                 // or a fast replug): the state of the old one must not carry over. A display without DDC before and
                 // now keeps its slider position: its brightness is read again below, and the read keeps the position
                 // if the display is still as it shows.
-                let change = MonitorLink.change(from: MonitorLink(key: previousKey, connection: display.ddc?.entryID),
-                                                to: MonitorLink(key: keys[id], connection: ddc[id]?.entryID))
+                let change = MonitorLink.change(
+                    from: MonitorLink(key: previousKey, connection: display.ddc.map { .init(entry: $0.entryID) }),
+                    to: MonitorLink(key: keys[id], connection: ddc[id].map { .init(entry: $0.entryID) }))
                 if change != .same {
                     Self.log.notice("Display \(id, privacy: .public): \(String(describing: change), privacy: .public)")
                 }
