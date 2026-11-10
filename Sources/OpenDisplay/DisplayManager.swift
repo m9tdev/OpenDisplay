@@ -291,14 +291,14 @@ final class DisplayManager {
         }
         // A display that went away and came back is a new display object, so its dimming starts at 1: it gets back
         // what it had when it went away. Another monitor behind a display ID counts as the old one going away and the
-        // new one arriving. A display with a new DDC connection resyncs, like a display that turned on.
+        // new one arriving. A display with a new DDC connection resyncs, but it did not turn on.
         if !replacedMonitors.isEmpty {
             let staying = before.filter { !replacedMonitors.contains($0.id) }
             _ = reconnects.refresh(before: before, after: staying, turnedOnByApp: [])
             before = staying
         }
         let plan = reconnects.refresh(before: before, after: next.map { reconnectSnapshot($0) },
-                                      turnedOnByApp: turnedOnByApp.union(resyncs))
+                                      turnedOnByApp: turnedOnByApp, reconnected: resyncs.subtracting(replacedMonitors))
         turnedOnByApp = []
         for display in next {
             if let dimming = plan.dimming[display.id] { display.dimming = dimming }
@@ -388,14 +388,16 @@ final class DisplayManager {
     }
 
     /// Reads the brightness and the volume of `display` again once the monitor accepts DDC over its new connection.
-    /// Until then the menu keeps the values it shows.
+    /// Until then the menu keeps the values it shows, and it keeps them if the monitor does not answer. During a
+    /// calibration the monitor's level is the calibration's, not the display's brightness, so the brightness is not
+    /// read.
     private func readWhenReady(_ display: Display) {
         let generation = display.connectionGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.ddcReadyDelay) { [weak self, weak display] in
             MainActor.assumeIsolated {
                 guard let self, let display, self.byID[display.id] === display, display.isEnabled,
                       display.connectionGeneration == generation else { return }
-                self.readBrightness(display)
+                if !self.isCalibrating { self.readBrightness(display, keepsShownOnFailure: true) }
                 self.readVolume(display)
             }
         }
@@ -414,7 +416,10 @@ final class DisplayManager {
     // All brightness sliders follow the macOS curve (see `BrightnessCurve`), so the same slider position gives
     // about the same light on each display. Below an external display's lowest level, software dimming makes it darker.
 
-    func readBrightness(_ display: Display) {
+    /// `keepsShownOnFailure`: if the monitor does not answer, keep the brightness shown and its error (see
+    /// `DDCValue.startRead`).
+    func readBrightness(_ display: Display, keepsShownOnFailure: Bool = false) {
+        let previousError = display.brightnessError
         display.brightnessError = nil
         if display.isBuiltin {
             var value: Float = 0
@@ -431,7 +436,7 @@ final class DisplayManager {
                 readLevel: nil, dimming: display.dimming, shown: shownBrightness(display), levelStep: 0)
             return
         }
-        let read = display.brightnessDDC.startRead()
+        let read = display.brightnessDDC.startRead(keepsShownOnFailure: keepsShownOnFailure && display.brightness != nil)
         let generation = display.connectionGeneration
         ddc.readLater(vcp: VCP.brightness) { [weak self, weak display] result in
             MainActor.assumeIsolated {
@@ -446,6 +451,8 @@ final class DisplayManager {
                     // The app set the brightness after the read was sent (for example brightness sync at launch):
                     // the monitor answered with its level from before, so the slider keeps the app's value.
                     if failed { display.brightnessError = "Could not read value over DDC" }
+                } else if case .unanswered = answer {
+                    display.brightnessError = previousError
                 } else {
                     // Writes often work when reads do not, so still allow control.
                     display.brightness = 0.5

@@ -71,8 +71,7 @@ public struct ReconnectMemory: Equatable, Sendable {
         var plan = Plan()
         for display in after where display.isEnabled {
             let old = previous[display.id]
-            // Not decided yet: a reconnected display counts as turned on.
-            let turnedOn = old?.isEnabled != true || turnedOnByApp.contains(display.id) || reconnected.contains(display.id)
+            let turnedOn = old?.isEnabled != true || turnedOnByApp.contains(display.id)
             if old == nil, let key = display.key {
                 plan.dimming[display.id] = max(dimming.removeValue(forKey: key) ?? 1, Self.minimumRestoredDimming)
             } else if turnedOn && display.dimming < Self.minimumRestoredDimming {

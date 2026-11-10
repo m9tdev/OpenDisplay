@@ -90,7 +90,7 @@ public struct DDCValue: Equatable, Sendable {
         if write != nil && waitingOutdatesReads { readsBeforeLastWrite = reads }
         waiting = nil
         waitingOutdatesReads = false
-        // Not decided yet: `keepsShownOnFailure` is not used.
+        if read.keepsShownOnFailure && (current == nil || maximum == nil) { return (.unanswered, write) }
         if read.number <= readsBeforeLastWrite { return (.outdated(failed: current == nil || maximum == nil), write) }
         guard let current, let maximum else { return (.failed, write) }
         return (.show(current: current, level: maximum > 0 ? Double(current) / Double(maximum) : nil), write)
