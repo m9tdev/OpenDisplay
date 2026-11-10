@@ -40,4 +40,24 @@ final class CalibrationTopTests: XCTestCase {
         // The external display matched at half its slider: it has 1 / 0.28 of the built-in display's light.
         XCTAssertEqual(CalibrationTop.maximumWithoutDDC(brighter: .external, slider: 0.5), 1 / 0.28, accuracy: 1e-9)
     }
+
+    func testOnlyAFiniteMaximumAboveZeroIsUsable() {
+        XCTAssertTrue(CalibrationPolicy.isUsable(maximum: 1))
+        XCTAssertTrue(CalibrationPolicy.isUsable(maximum: 0.002))
+        XCTAssertTrue(CalibrationPolicy.isUsable(maximum: 400))
+        XCTAssertFalse(CalibrationPolicy.isUsable(maximum: .infinity))
+        XCTAssertFalse(CalibrationPolicy.isUsable(maximum: .nan))
+        XCTAssertFalse(CalibrationPolicy.isUsable(maximum: 0))
+        XCTAssertFalse(CalibrationPolicy.isUsable(maximum: -1))
+    }
+
+    func testEachMaximumOfTheSliderIsUsable() {
+        for brighter in [CalibrationTop.Brighter.builtin, .external, .same] {
+            for step in 0...100 {
+                let slider = Double(step) / 100
+                XCTAssertTrue(CalibrationPolicy.isUsable(
+                    maximum: CalibrationTop.maximumWithoutDDC(brighter: brighter, slider: slider)), "\(brighter) at \(slider)")
+            }
+        }
+    }
 }

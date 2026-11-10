@@ -8,23 +8,33 @@ public enum CalibrationTop {
         case builtin, external, same
     }
 
-    /// The range of the slider of the brighter display.
+    /// The range of the slider of the brighter display. Not 0: there the light is 0, which matches no display (the
+    /// built-in display turns black), and the maximum of an external display that is brighter would be infinite.
     public static func sliderRange(_ brighter: Brighter) -> ClosedRange<Double> {
-        switch brighter {
-        case .builtin, .same: 0.01...1
-        case .external: 0...1
-        }
+        0.01...1
     }
 
     /// For an external display without DDC: its maximum light, as a part of the built-in display's maximum light.
+    /// Always finite and above 0.
     /// - Parameters:
     ///   - brighter: The brighter display, or nil if the user selected none.
-    ///   - slider: The position of the brighter display's slider.
+    ///   - slider: The position of the brighter display's slider. Outside `sliderRange`, the nearest end.
     public static func maximumWithoutDDC(brighter: Brighter?, slider: Double) -> Double {
+        guard let brighter else { return 1 }
+        let range = sliderRange(brighter)
+        let light = BrightnessCurve.light(slider: min(max(slider, range.lowerBound), range.upperBound))
         switch brighter {
-        case .builtin: BrightnessCurve.light(slider: slider)
-        case .external: 1 / BrightnessCurve.light(slider: slider)
-        case .same, nil: 1
+        case .builtin: return light
+        case .external: return 1 / light
+        case .same: return 1
         }
+    }
+}
+
+extension CalibrationPolicy {
+    /// True if a calibration's maximum light can be shown and saved: finite and above 0. JSON cannot hold an infinite
+    /// number, and the app divides by the maximum.
+    public static func isUsable(maximum: Double) -> Bool {
+        maximum.isFinite && maximum > 0
     }
 }

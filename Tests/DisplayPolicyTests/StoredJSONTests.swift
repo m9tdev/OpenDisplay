@@ -22,14 +22,14 @@ final class StoredJSONTests: XCTestCase {
     }
 
     func testAValueIsSaved() throws {
-        StoredJSON.save(["a": 1.5], forKey: key, in: defaults)
+        XCTAssertTrue(StoredJSON.save(["a": 1.5], forKey: key, in: defaults))
         XCTAssertEqual(try saved(), ["a": 1.5])
     }
 
     func testAValueThatCannotBeEncodedKeepsTheSavedOne() throws {
         StoredJSON.save(["a": 1.5], forKey: key, in: defaults)
         // JSON has no infinite numbers, so the encoding fails.
-        StoredJSON.save(["a": 1.5, "b": .infinity], forKey: key, in: defaults)
+        XCTAssertFalse(StoredJSON.save(["a": 1.5, "b": .infinity], forKey: key, in: defaults))
         XCTAssertEqual(try saved(), ["a": 1.5])
     }
 }
