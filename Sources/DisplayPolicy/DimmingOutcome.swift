@@ -21,9 +21,15 @@ public struct DimmingOutcome: Equatable, Sendable {
     ///   - dimming: The software dimming the app asked for (1: none).
     ///   - dimmed: True if macOS now dims the display by `dimming`. False: the display shows its normal image.
     public init(control: BrightnessControl, slider: Double?, dimming: Double, dimmed: Bool) {
-        // Not yet: the outcome always says the dimming worked.
-        self.slider = slider
-        self.dimming = dimming
-        self.error = nil
+        guard !dimmed && dimming < 1 else {
+            self.slider = slider
+            self.dimming = dimming
+            self.error = nil
+            return
+        }
+        // The hardware level still applies (the DDC level of an external display); only the dimming is missing.
+        self.slider = slider.map { control.slider(level: control.split($0).level, dimming: 1) }
+        self.dimming = 1
+        self.error = Self.failureMessage
     }
 }

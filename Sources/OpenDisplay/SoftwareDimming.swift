@@ -18,17 +18,28 @@ enum SoftwareDimming {
     private static let gamma = 2.2
 
     /// - Parameter factor: The light output: 1 is the normal image, 0.2 is 20 % of its light.
-    static func set(_ factor: Double, for id: CGDirectDisplayID) {
-        guard factor < 1 else { return restore(id) }
-        guard let original = originals[id] ?? read(id) else { return }
-        originals[id] = original
+    /// - Returns: False if macOS did not give or take the display's color table: then the display is not dimmed.
+    @discardableResult
+    static func set(_ factor: Double, for id: CGDirectDisplayID) -> Bool {
+        guard factor < 1 else {
+            restore(id)
+            return true
+        }
+        guard let original = originals[id] ?? read(id) else { return false }
         // The table holds color values, not light. Scaling the values by f scales the light by f^2.2,
         // so scale the values by factor^(1/2.2) to get the light factor.
         let scale = CGGammaValue(pow(max(factor, 0), 1 / gamma))
         var red = original.red.map { $0 * scale }
         var green = original.green.map { $0 * scale }
         var blue = original.blue.map { $0 * scale }
-        CGSetDisplayTransferByTable(id, UInt32(red.count), &red, &green, &blue)
+        guard CGSetDisplayTransferByTable(id, UInt32(red.count), &red, &green, &blue) == .success else {
+            // macOS kept the table it had. If an earlier call dimmed the display, put back its normal image, so the
+            // display is not dimmed at all, as the caller then shows it.
+            restore(id)
+            return false
+        }
+        originals[id] = original
+        return true
     }
 
     static func restore(_ id: CGDirectDisplayID) {

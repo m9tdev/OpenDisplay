@@ -20,7 +20,7 @@ enum DisplayControls {
         if manager.displays.filter(\.isEnabled).count > 1 { rows.append("main") }
         if !display.isBuiltin, manager.displays.contains(where: \.isBuiltin) { rows.append("sync") }
         if XDRBoost.isSupported(id) { rows.append("xdr") }
-        if display.brightnessError != nil { rows.append("error") }
+        if display.errorMessage != nil { rows.append("error") }
         return rows.map { "\(id).\($0)" }
     }
 
@@ -123,7 +123,7 @@ enum DisplayControls {
             return row
 
         case "error":
-            return MessageRowView(indented: true) { display.isEnabled ? display.brightnessError : nil }
+            return MessageRowView(indented: true) { display.isEnabled ? display.errorMessage : nil }
 
         default:
             return nil
