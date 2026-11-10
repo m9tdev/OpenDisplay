@@ -204,8 +204,8 @@ final class CalibrationSession {
         current?.finish()
     }
 
-    /// Puts back what a calibration changed if the app ended during it without `finish` (a crash). Call once at launch,
-    /// after the first refresh.
+    /// Puts back what a calibration changed if the app ended during it without `finish` (a crash). Call after each
+    /// refresh: a part for a display that is not there stays in the record until the display comes back.
     static func restoreUnfinished(manager: DisplayManager) {
         guard CalibrationRecord(data: UserDefaults.standard.data(forKey: recordKey)) != nil else { return }
         // After the first DDC reads: then a brightness write uses the monitor's own maximum, and no read overwrites it.
@@ -216,16 +216,22 @@ final class CalibrationSession {
                 // puts it back when it ends.
                 guard current == nil,
                       let record = CalibrationRecord(data: UserDefaults.standard.data(forKey: recordKey)) else { return }
-                // Before the restore: if the restore itself fails, it must not run at each launch.
-                UserDefaults.standard.removeObject(forKey: recordKey)
-                let builtin = manager.displays.first { $0.isBuiltin }
+                let builtin = manager.displays.first { $0.isBuiltin && $0.isEnabled }
                 let external = manager.displays.first { !$0.isBuiltin && $0.isEnabled && $0.stableKey == record.externalKey }
                 let state: CalibrationRecord.External = if let external {
                     manager.isSynced(external) ? .synced : .own(brightness: nil)
                 } else {
                     .absent
                 }
-                apply(record.restore(external: state), builtin: builtin, external: external, manager: manager)
+                let (now, pending) = record.restoreUnfinished(builtin: builtin != nil, external: state)
+                // Before the restore: if the restore itself fails, it must not run again. Only the parts for a display
+                // that is not there stay.
+                if let pending {
+                    UserDefaults.standard.set(pending.data, forKey: recordKey)
+                } else {
+                    UserDefaults.standard.removeObject(forKey: recordKey)
+                }
+                apply(now, builtin: builtin, external: external, manager: manager)
             }
         }
     }
