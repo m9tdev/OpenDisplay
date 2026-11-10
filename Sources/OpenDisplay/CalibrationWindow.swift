@@ -17,9 +17,7 @@ final class CalibrationSession {
         case lowest, top, middle, middleReference, result
     }
 
-    enum Brighter {
-        case builtin, external, same
-    }
+    typealias Brighter = CalibrationTop.Brighter
 
     let builtin: Display
     let external: Display
@@ -140,8 +138,8 @@ final class CalibrationSession {
             return (binding(\.lowestSlider), builtinRange, builtin)
         case .top:
             switch brighter {
-            case .builtin: return (binding(\.topSlider), builtinRange, builtin)
-            case .external: return (binding(\.topSlider), 0...1, external)
+            case .builtin: return (binding(\.topSlider), CalibrationTop.sliderRange(.builtin), builtin)
+            case .external: return (binding(\.topSlider), CalibrationTop.sliderRange(.external), external)
             case .same, nil: return nil
             }
         case .middle:
@@ -180,12 +178,7 @@ final class CalibrationSession {
     /// The calibration values from the matches. Without DDC, only the maximum.
     var result: (lowest: Double?, gamma: Double?, maximum: Double, error: Double) {
         guard usesDDC else {
-            let maximum = switch brighter {
-            case .builtin: BrightnessCurve.light(slider: topSlider)
-            case .external: 1 / BrightnessCurve.light(slider: topSlider)
-            case .same, nil: 1.0
-            }
-            return (nil, nil, maximum, 1)
+            return (nil, nil, CalibrationTop.maximumWithoutDDC(brighter: brighter, slider: topSlider), 1)
         }
         let fit = matches.fit()
         return (fit.lowest, fit.gamma, fit.maximum, fit.error)

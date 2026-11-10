@@ -76,7 +76,7 @@ enum CalibrationStore {
     }
 
     static func save(_ calibrations: [String: BrightnessCalibration]) {
-        UserDefaults.standard.set(try? JSONEncoder().encode(calibrations), forKey: key)
+        StoredJSON.save(calibrations, forKey: key)
     }
 }
 
