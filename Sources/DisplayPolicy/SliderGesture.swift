@@ -52,7 +52,8 @@ public enum SliderGesture: Equatable, Sendable {
 
     /// The choice a stepped slider (a resolution, a refresh rate) applies when it is at `index`, or `nil`.
     /// A choice blanks the screen for a moment, so only a finished choice applies, and only a new one. A click
-    /// without a move is no choice: the knob can show an older choice when the current one is not in the list.
+    /// without a move is no choice: the knob does not follow the current choice while it is held, so after a change
+    /// from elsewhere it can still show the older one.
     public func choice(_ index: Int, current: Int?) -> Int? {
         switch self {
         case .pressed, .dragging, .released(moved: false): nil
