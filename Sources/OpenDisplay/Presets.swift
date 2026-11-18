@@ -9,10 +9,7 @@ final class PresetStore {
     static let shared = PresetStore()
     private static let key = "presets"
 
-    private(set) var presets: [Preset] = {
-        guard let data = UserDefaults.standard.data(forKey: key) else { return [] }
-        return (try? JSONDecoder().decode([Preset].self, from: data)) ?? []
-    }() {
+    private(set) var presets: [Preset] = StoredJSON.load([Preset].self, forKey: key).value ?? [] {
         didSet { UserDefaults.standard.set(try? JSONEncoder().encode(presets), forKey: Self.key) }
     }
 

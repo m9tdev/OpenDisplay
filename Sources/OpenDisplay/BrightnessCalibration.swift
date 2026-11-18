@@ -71,8 +71,7 @@ enum CalibrationStore {
     private static let key = "brightnessCalibrations"
 
     static func load() -> [String: BrightnessCalibration] {
-        guard let data = UserDefaults.standard.data(forKey: key) else { return [:] }
-        return (try? JSONDecoder().decode([String: BrightnessCalibration].self, from: data)) ?? [:]
+        StoredJSON.loadEntries(BrightnessCalibration.self, forKey: key).value
     }
 
     static func save(_ calibrations: [String: BrightnessCalibration]) {
