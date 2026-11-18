@@ -598,5 +598,59 @@ final class CalibrationPolicyTests: XCTestCase {
             + "Check them in System Settings > Displays.")
     }
 
+    func testARestoreThatFailsShowsTheError() {
+        var failures = CalibrationRestoreFailures()
+        failures.restored(autoBrightnessOn: false, trueToneOn: true, errorShown: false)
+        XCTAssertEqual(failures.error, CalibrationPolicy.restoreError(autoBrightnessFailed: true, trueToneFailed: false))
+    }
+
+    func testARestoreThatWorksShowsNoError() {
+        var failures = CalibrationRestoreFailures()
+        failures.restored(autoBrightnessOn: true, trueToneOn: true, errorShown: false)
+        XCTAssertNil(failures.error)
+    }
+
+    func testATrueToneOnlyRestoreKeepsTheAutomaticBrightnessError() {
+        // The automatic brightness result comes first, the True Tone result later: one does not clear the other.
+        var failures = CalibrationRestoreFailures()
+        failures.restored(autoBrightnessOn: false, trueToneOn: nil, errorShown: false)
+        failures.restored(autoBrightnessOn: nil, trueToneOn: true, errorShown: true)
+        XCTAssertEqual(failures.error, CalibrationPolicy.restoreError(autoBrightnessFailed: true, trueToneFailed: false))
+        failures.restored(autoBrightnessOn: nil, trueToneOn: false, errorShown: true)
+        XCTAssertEqual(failures.error, CalibrationPolicy.restoreError(autoBrightnessFailed: true, trueToneFailed: true))
+    }
+
+    func testASettingTurnedOnLaterClearsItsError() {
+        // The user turned it on in System Settings: the next check finds it on.
+        var failures = CalibrationRestoreFailures()
+        failures.restored(autoBrightnessOn: false, trueToneOn: false, errorShown: false)
+        failures.checked(autoBrightnessOn: true, trueToneOn: false, errorShown: true)
+        XCTAssertEqual(failures.error, CalibrationPolicy.restoreError(autoBrightnessFailed: false, trueToneFailed: true))
+        failures.checked(autoBrightnessOn: nil, trueToneOn: true, errorShown: true)
+        XCTAssertNil(failures.error)
+    }
+
+    func testACheckNeverAddsAnError() {
+        // A setting that is off without a failed restore is the user's choice.
+        var failures = CalibrationRestoreFailures()
+        failures.checked(autoBrightnessOn: false, trueToneOn: false, errorShown: false)
+        XCTAssertNil(failures.error)
+        failures.restored(autoBrightnessOn: true, trueToneOn: true, errorShown: false)
+        failures.checked(autoBrightnessOn: false, trueToneOn: false, errorShown: false)
+        XCTAssertNil(failures.error)
+    }
+
+    func testASeenErrorDoesNotComeBack() {
+        // The user closed the menu with the error: they may keep the setting off. A later check or restore of the
+        // other setting does not show the old failure again.
+        var failures = CalibrationRestoreFailures()
+        failures.restored(autoBrightnessOn: false, trueToneOn: nil, errorShown: false)
+        failures.checked(autoBrightnessOn: false, trueToneOn: nil, errorShown: false)
+        XCTAssertNil(failures.error)
+        failures.restored(autoBrightnessOn: false, trueToneOn: nil, errorShown: false)
+        failures.restored(autoBrightnessOn: nil, trueToneOn: true, errorShown: false)
+        XCTAssertNil(failures.error)
+    }
+
     private typealias Restore = CalibrationRecord.Restore
 }

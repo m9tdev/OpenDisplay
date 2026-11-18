@@ -59,6 +59,45 @@ final class WriteFailuresTests: XCTestCase {
         XCTAssertNil(failures.error)
     }
 
+    func testAReadThatWorksClearsTheError() {
+        // The monitor answered over the same connection: the transport works.
+        var failures = WriteFailures.ddc
+        _ = record(&failures, Array(repeating: false, count: WriteFailures.ddcThreshold))
+        XCTAssertTrue(failures.recordRead(succeeded: true))
+        XCTAssertNil(failures.error)
+        // And the count starts again.
+        _ = record(&failures, Array(repeating: false, count: WriteFailures.ddcThreshold - 1))
+        XCTAssertNil(failures.error)
+    }
+
+    func testAFailedReadCountsNothing() {
+        // Reads also fail when the monitor is slow to answer, so only a read that works counts.
+        var failures = WriteFailures.ddc
+        _ = record(&failures, Array(repeating: false, count: WriteFailures.ddcThreshold - 1))
+        XCTAssertFalse(failures.recordRead(succeeded: false))
+        XCTAssertNil(failures.error)
+        _ = record(&failures, Array(repeating: false, count: WriteFailures.ddcThreshold))
+        XCTAssertFalse(failures.recordRead(succeeded: false))
+        XCTAssertEqual(failures.error, WriteFailures.ddcMessage)
+    }
+
+    func testAWakeClearsTheErrorAndTheCount() {
+        // Writes to a monitor that slept can fail; after the wake, it starts again with no error.
+        var failures = WriteFailures.ddc
+        _ = record(&failures, Array(repeating: false, count: WriteFailures.ddcThreshold))
+        XCTAssertTrue(failures.reset())
+        XCTAssertNil(failures.error)
+        failures.record(succeeded: false)
+        XCTAssertNil(failures.error)
+    }
+
+    func testAWakeWithoutAnErrorChangesNothing() {
+        var failures = WriteFailures.ddc
+        failures.record(succeeded: false)
+        XCTAssertFalse(failures.reset())
+        XCTAssertNil(failures.error)
+    }
+
     // MARK: Built-in display
 
     func testOneFailedBuiltinBrightnessWriteShowsAnError() {
