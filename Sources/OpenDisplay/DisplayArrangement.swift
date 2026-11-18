@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import DisplayPolicy
 
 /// Main display and rotation.
 enum DisplayArrangement {
@@ -14,15 +15,20 @@ enum DisplayArrangement {
         let origin = CGDisplayBounds(id).origin
         var ids = [CGDirectDisplayID](repeating: 0, count: 16)
         var count: UInt32 = 0
-        CGGetActiveDisplayList(UInt32(ids.count), &ids, &count)
+        let listed = CGGetActiveDisplayList(UInt32(ids.count), &ids, &count)
+        if let error = ArrangementResult.displayListError(result: listed.rawValue, count: Int(count)) { return error }
 
         var config: CGDisplayConfigRef?
         guard CGBeginDisplayConfiguration(&config) == .success, let config else {
             return "Could not start display configuration."
         }
-        for other in ids.prefix(Int(count)) {
+        let moved = ids.prefix(Int(count)).map { other in
             let bounds = CGDisplayBounds(other)
-            CGConfigureDisplayOrigin(config, other, Int32(bounds.minX - origin.x), Int32(bounds.minY - origin.y))
+            return CGConfigureDisplayOrigin(config, other, Int32(bounds.minX - origin.x), Int32(bounds.minY - origin.y)).rawValue
+        }
+        if let error = ArrangementResult.originError(results: moved) {
+            CGCancelDisplayConfiguration(config)
+            return error
         }
         let result = CGCompleteDisplayConfiguration(config, .permanently)
         return result == .success ? nil : "Could not change the main display (error \(result.rawValue))."
@@ -44,12 +50,21 @@ enum DisplayArrangement {
         return method(display, "canChangeOrientation", as: GetBool.self)(display, NSSelectorFromString("canChangeOrientation"))
     }
 
-    /// Blocks until macOS has rotated the display, so call it off the main thread.
+    /// Returns an error message, or nil on success. Blocks while macOS rotates the display, so call it off the main thread.
+    /// The private call reports nothing, so read the rotation back. macOS may finish the rotation only after the call
+    /// returns: wait up to 2 seconds for it before reporting an error.
     static func setRotation(_ degrees: Int, for id: CGDirectDisplayID) -> String? {
         guard let display = monitorPanelDisplay(id) else { return "This macOS version does not support rotation." }
         typealias SetInt = @convention(c) (AnyObject, Selector, Int32) -> Void
         method(display, "setOrientation:", as: SetInt.self)(display, NSSelectorFromString("setOrientation:"), Int32(degrees))
-        return nil
+        var error = ArrangementResult.rotationError(requested: degrees, readBack: CGDisplayRotation(id))
+        var waits = 0
+        while error != nil, waits < 20 {
+            Thread.sleep(forTimeInterval: 0.1)
+            waits += 1
+            error = ArrangementResult.rotationError(requested: degrees, readBack: CGDisplayRotation(id))
+        }
+        return error
     }
 
     private static let monitorPanel: UnsafeMutableRawPointer? = dlopen(
