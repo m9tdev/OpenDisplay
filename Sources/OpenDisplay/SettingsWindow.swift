@@ -175,7 +175,10 @@ private struct SettingsView: View {
         }
         // Also check at once when Settings is shown, and when the user comes back from System Settings.
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
-            if SettingsWindow.isAboutSettings(notification) { recheckLoginItem() }
+            guard SettingsWindow.isAboutSettings(notification) else { return }
+            // The permission can have changed while Settings was closed, when the timer does not run.
+            hasPermission = KeyboardControl.hasPermission
+            recheckLoginItem()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             recheckLoginItem()
