@@ -77,6 +77,19 @@ final class StoredJSONTests: XCTestCase {
         XCTAssertEqual(defaults.data(forKey: backup), saved)
     }
 
+    func testDataThatCannotBeReadIsBackedUpOnlyOnce() throws {
+        // It leaves the main key, so the next launch neither reads it again nor makes another backup.
+        let saved = data(#"[{"name": "a", "value": {"level": 1}}]"#)
+        defaults.set(saved, forKey: key)
+        let backup = try XCTUnwrap(StoredJSON.load([Item].self, forKey: key, in: defaults, date: date).backupKey)
+        let (value, backupKey) = StoredJSON.load([Item].self, forKey: key, in: defaults, date: date)
+        XCTAssertNil(value)
+        XCTAssertNil(backupKey)
+        XCTAssertNil(defaults.data(forKey: key))
+        XCTAssertEqual(backupKeys(), [backup])
+        XCTAssertEqual(defaults.data(forKey: backup), saved)
+    }
+
     func testALaterSaveKeepsTheBackup() throws {
         let saved = data(#"[{"name": "a", "value": {"level": 1}}]"#)
         defaults.set(saved, forKey: key)
