@@ -13,9 +13,9 @@ final class ErrorSlotsTests: XCTestCase {
 
     func testOneErrorShowsAsItIs() {
         var errors = ErrorSlots()
-        errors[.action] = actionError
+        errors[.display(1)] = actionError
         XCTAssertEqual(errors.text, actionError)
-        XCTAssertEqual(errors[.action], actionError)
+        XCTAssertEqual(errors[.display(1)], actionError)
         XCTAssertNil(errors[.restore])
     }
 
@@ -24,7 +24,7 @@ final class ErrorSlotsTests: XCTestCase {
         // own error at its start, not the error of the failed attempt.
         var errors = ErrorSlots()
         errors[.restore] = restoreError
-        errors[.action] = nil
+        errors.startChange(of: 1)
         XCTAssertEqual(errors.text, restoreError)
     }
 
@@ -32,7 +32,7 @@ final class ErrorSlotsTests: XCTestCase {
         // A display is on again: the restore error is stale, a failed resolution change is not.
         var errors = ErrorSlots()
         errors[.restore] = restoreError
-        errors[.action] = actionError
+        errors[.display(1)] = actionError
         errors[.restore] = nil
         XCTAssertEqual(errors.text, actionError)
     }
@@ -40,18 +40,18 @@ final class ErrorSlotsTests: XCTestCase {
     func testAnActionErrorDoesNotReplaceTheRestoreError() {
         var errors = ErrorSlots()
         errors[.restore] = restoreError
-        errors[.action] = actionError
+        errors[.display(1)] = actionError
         XCTAssertEqual(errors[.restore], restoreError)
-        XCTAssertEqual(errors[.action], actionError)
+        XCTAssertEqual(errors[.display(1)], actionError)
     }
 
     func testAllErrorsShowInAFixedOrder() {
         // The restore error first: no display may be on. The order does not depend on which error came first.
         var first = ErrorSlots()
         first[.restore] = restoreError
-        first[.action] = actionError
+        first[.display(1)] = actionError
         var second = ErrorSlots()
-        second[.action] = actionError
+        second[.display(1)] = actionError
         second[.restore] = restoreError
         XCTAssertEqual(first.text, "\(restoreError) \(actionError)")
         XCTAssertEqual(second.text, first.text)
@@ -62,11 +62,11 @@ final class ErrorSlotsTests: XCTestCase {
         // the result of the latest action.
         let calibrationError = CalibrationPolicy.restoreError(autoBrightnessFailed: true, trueToneFailed: false)!
         var errors = ErrorSlots()
-        errors[.action] = actionError
+        errors[.display(1)] = actionError
         errors[.calibration] = calibrationError
         errors[.restore] = restoreError
         XCTAssertEqual(errors.text, "\(restoreError) \(calibrationError) \(actionError)")
-        errors[.action] = nil
+        errors.startChange(of: 1)
         XCTAssertEqual(errors[.calibration], calibrationError)
     }
 
@@ -74,7 +74,7 @@ final class ErrorSlotsTests: XCTestCase {
         // Clearing one source must not clear the other, even with the same text.
         var errors = ErrorSlots()
         errors[.restore] = restoreError
-        errors[.action] = restoreError
+        errors[.display(1)] = restoreError
         errors[.restore] = nil
         XCTAssertEqual(errors.text, restoreError)
     }
@@ -83,11 +83,67 @@ final class ErrorSlotsTests: XCTestCase {
         // The user closed the menu: they have seen every error.
         var errors = ErrorSlots()
         errors[.restore] = restoreError
-        errors[.action] = actionError
+        errors[.display(1)] = actionError
         errors.removeAll()
         XCTAssertNil(errors.text)
         XCTAssertNil(errors[.restore])
-        XCTAssertNil(errors[.action])
+        XCTAssertNil(errors[.display(1)])
+    }
+
+    // MARK: One slot per display, and one for presets
+
+    let otherError = "Could not turn off LG (error 1000)."
+    let presetError = "Skipped Dell: not connected."
+
+    func testAChangeOfAnotherDisplayKeepsTheError() {
+        // Turning display 1 off failed; then the user changes the resolution of display 2. The error about display 1
+        // stays until a change of display 1 starts.
+        var errors = ErrorSlots()
+        errors[.display(1)] = actionError
+        errors.startChange(of: 2)
+        XCTAssertEqual(errors.text, actionError)
+        errors[.display(2)] = otherError
+        XCTAssertEqual(errors.text, "\(actionError) \(otherError)")
+        errors.startChange(of: 1)
+        XCTAssertEqual(errors.text, otherError)
+    }
+
+    func testAChangeOfADisplayKeepsThePresetError() {
+        var errors = ErrorSlots()
+        errors[.preset] = presetError
+        errors[.display(1)] = actionError
+        errors.startChange(of: 1)
+        XCTAssertEqual(errors.text, presetError)
+    }
+
+    func testAPresetKeepsTheErrorsOfTheDisplays() {
+        // A preset clears only the error of the last preset.
+        var errors = ErrorSlots()
+        errors[.display(1)] = actionError
+        errors[.preset] = presetError
+        errors[.preset] = nil
+        XCTAssertEqual(errors.text, actionError)
+    }
+
+    func testTheErrorsOfDisplaysShowAfterCalibrationAndBeforeThePreset() {
+        // Restore, calibration, then the displays by id, then the preset, whatever came first.
+        let calibrationError = CalibrationPolicy.restoreError(autoBrightnessFailed: true, trueToneFailed: false)!
+        var errors = ErrorSlots()
+        errors[.preset] = presetError
+        errors[.display(7)] = otherError
+        errors[.display(3)] = actionError
+        errors[.calibration] = calibrationError
+        errors[.restore] = restoreError
+        XCTAssertEqual(errors.text, "\(restoreError) \(calibrationError) \(actionError) \(otherError) \(presetError)")
+    }
+
+    func testRemoveAllClearsTheDisplaysAndThePreset() {
+        var errors = ErrorSlots()
+        errors[.display(1)] = actionError
+        errors[.display(2)] = otherError
+        errors[.preset] = presetError
+        errors.removeAll()
+        XCTAssertNil(errors.text)
     }
 }
 
