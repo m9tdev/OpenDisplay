@@ -82,4 +82,28 @@ final class DimmingOutcomeTests: XCTestCase {
         XCTAssertNil(worked.error)
         XCTAssertEqual(worked.dimming, 0.04)
     }
+
+    // MARK: macOS did not take the normal image back
+
+    func testAFailedUndoOfTheDimmingShowsAnError() {
+        // The user moved the slider out of the dimming range, but macOS kept the dimmed color table: the display stays
+        // dark while the slider says it is not dimmed.
+        let (level, dimming) = external.split(0.8)
+        XCTAssertNotNil(level)
+        let outcome = DimmingOutcome(control: external, slider: 0.8, dimming: dimming, dimmed: false, undone: false)
+        XCTAssertEqual(outcome.error, DimmingOutcome.undoFailureMessage)
+        XCTAssertEqual(outcome.slider, 0.8)
+        XCTAssertEqual(outcome.dimming, 1)
+    }
+
+    func testAnUndoThatWorksClearsTheError() {
+        let failed = DimmingOutcome(control: software, slider: 1, dimming: 1, dimmed: false, undone: false)
+        XCTAssertNotNil(failed.error)
+        let worked = DimmingOutcome(control: software, slider: 1, dimming: 1, dimmed: false, undone: true)
+        XCTAssertNil(worked.error)
+    }
+
+    func testTheUndoMessageIsNotTheDimmingMessage() {
+        XCTAssertNotEqual(DimmingOutcome.undoFailureMessage, DimmingOutcome.failureMessage)
+    }
 }
