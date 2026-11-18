@@ -202,8 +202,42 @@ final class PresetReportTests: XCTestCase {
     // MARK: Report
 
     func testTheReportHasEveryMessage() {
-        XCTAssertEqual(PresetPolicy.report(["Skipped Dell: not connected.", "Could not turn on BenQ (error 1001)."]),
+        var results = PresetPolicy.StepResults()
+        results.record(2, error: "Could not turn on BenQ (error 1001).")
+        XCTAssertEqual(PresetPolicy.report(skipped: ["Skipped Dell: not connected."], results: results),
                        "Skipped Dell: not connected. Could not turn on BenQ (error 1001).")
-        XCTAssertNil(PresetPolicy.report([]))
+        XCTAssertNil(PresetPolicy.report(skipped: [], results: PresetPolicy.StepResults()))
+    }
+
+    func testADisplayThatFailsTwiceReportsOnce() {
+        // BenQ did not turn on, so its resolution and rotation cannot change either: the first failure is the one
+        // that tells why.
+        var results = PresetPolicy.StepResults()
+        results.record(2, error: "Could not turn on BenQ (error 1001).")
+        results.record(2, error: "Skipped the resolution of BenQ: 2560 × 1440 at 60 Hz is not available.")
+        results.record(2, error: "Could not rotate BenQ.")
+        XCTAssertTrue(results.failed(2))
+        XCTAssertEqual(PresetPolicy.report(skipped: [], results: results), "Could not turn on BenQ (error 1001).")
+    }
+
+    func testEachFailedDisplayReportsInTheOrderItFailed() {
+        var results = PresetPolicy.StepResults()
+        results.record(5, error: nil)
+        results.record(9, error: "Could not turn on LG (error 1001).")
+        results.record(5, error: "Skipped the resolution of Dell: 1920 × 1080 at 60 Hz is not available.")
+        results.record(9, error: "Could not make LG the main display.")
+        results.record(1, error: "Built-in Retina Display stays on: no other display is on.")
+        XCTAssertFalse(results.failed(3))
+        XCTAssertEqual(PresetPolicy.report(skipped: ["Skipped BenQ: not connected."], results: results),
+                       "Skipped BenQ: not connected. Could not turn on LG (error 1001). "
+                       + "Skipped the resolution of Dell: 1920 × 1080 at 60 Hz is not available. "
+                       + "Built-in Retina Display stays on: no other display is on.")
+    }
+
+    func testAStepThatWorkedReportsNothing() {
+        var results = PresetPolicy.StepResults()
+        results.record(1, error: nil)
+        XCTAssertFalse(results.failed(1))
+        XCTAssertNil(PresetPolicy.report(skipped: [], results: results))
     }
 }
