@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.4](https://github.com/m9tdev/OpenDisplay/compare/v0.2.3...v0.2.4) (2026-11-18)
+
+
+### Bug Fixes
+
+* keep an error about one display when another display changes ([#37](https://github.com/m9tdev/OpenDisplay/issues/37)) ([76b79db](https://github.com/m9tdev/OpenDisplay/commit/76b79db45b51f5f16b73956e1dbc1f2e54258b1d))
+* keep display mode, rotation and main display in the model; apply the chosen value ([#33](https://github.com/m9tdev/OpenDisplay/issues/33)) ([ea29a8a](https://github.com/m9tdev/OpenDisplay/commit/ea29a8a2f2a7047de4ef1663f485bd002d5d4814))
+* keep menu errors by source, so keeping a display on clears only its own error ([#32](https://github.com/m9tdev/OpenDisplay/issues/32)) ([dceda9e](https://github.com/m9tdev/OpenDisplay/commit/dceda9ea3f3689191167e0684cad770a2d8802ef))
+* keep saved presets, calibrations and an unfinished calibration's record that cannot be read ([#30](https://github.com/m9tdev/OpenDisplay/issues/30)) ([c8bebf6](https://github.com/m9tdev/OpenDisplay/commit/c8bebf6c574215afe212c0c9b3c0a46f39200937))
+* Settings window notification filter and timer scope, and small menu clean-ups ([#31](https://github.com/m9tdev/OpenDisplay/issues/31)) ([aeddca1](https://github.com/m9tdev/OpenDisplay/commit/aeddca1e9a6e77744e87ceeb4b91ef69f63f6a3c))
+* show an error when the main display or a rotation does not change ([#35](https://github.com/m9tdev/OpenDisplay/issues/35)) ([e45ebe0](https://github.com/m9tdev/OpenDisplay/commit/e45ebe05b1018af587dc8112affd5af13309fc29))
+* show failed private-API, color table and DDC writes instead of ignoring them ([#34](https://github.com/m9tdev/OpenDisplay/issues/34)) ([55e34f5](https://github.com/m9tdev/OpenDisplay/commit/55e34f55dcf38caf6490d234d41e6282c12228a8))
+* stop a display turned off and then unplugged from staying "off" for good ([#38](https://github.com/m9tdev/OpenDisplay/issues/38)) ([a957952](https://github.com/m9tdev/OpenDisplay/commit/a957952371535c0b672a2e6c0a8770d185b887f6))
+
 ## [0.2.3](https://github.com/m9tdev/OpenDisplay/compare/v0.2.2...v0.2.3) (2026-11-10)
 
 
