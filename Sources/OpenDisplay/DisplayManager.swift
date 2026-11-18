@@ -149,16 +149,43 @@ final class DisplayManager {
     /// cannot see the change in its lists.
     @ObservationIgnored private var turnedOnByApp: Set<CGDirectDisplayID> = []
 
-    /// Displays we turned off, with their names. Kept so they stay in the list (and survive an app restart).
-    @ObservationIgnored var disabled: [CGDirectDisplayID: String] {
+    /// Displays we turned off, with their names. Kept so they stay in the list (and survive an app restart). Change
+    /// them through `offMarks`, which also keeps the login session of each.
+    @ObservationIgnored var disabled: [CGDirectDisplayID: String] { offMarks.names }
+
+    /// Displays we turned off, with their names and the login session each was turned off in. The names stay under
+    /// "disabledDisplays", as earlier versions saved them, so going back to an earlier version keeps them.
+    @ObservationIgnored var offMarks: OffMarks {
         get {
-            let stored = UserDefaults.standard.dictionary(forKey: "disabledDisplays") as? [String: String] ?? [:]
-            return Dictionary(uniqueKeysWithValues: stored.compactMap { key, name in UInt32(key).map { ($0, name) } })
+            func stored(_ key: String) -> [CGDirectDisplayID: String] {
+                let stored = UserDefaults.standard.dictionary(forKey: key) as? [String: String] ?? [:]
+                return Dictionary(uniqueKeysWithValues: stored.compactMap { id, value in UInt32(id).map { ($0, value) } })
+            }
+            return OffMarks(names: stored("disabledDisplays"), sessions: stored("disabledDisplaySessions"))
         }
         set {
-            UserDefaults.standard.set(Dictionary(uniqueKeysWithValues: newValue.map { (String($0), $1) }), forKey: "disabledDisplays")
+            func store(_ values: [CGDirectDisplayID: String], _ key: String) {
+                UserDefaults.standard.set(Dictionary(uniqueKeysWithValues: values.map { (String($0), $1) }), forKey: key)
+            }
+            store(newValue.names, "disabledDisplays")
+            store(newValue.sessions, "disabledDisplaySessions")
         }
     }
+
+    /// The login session (see `LoginSession`), nil if macOS does not tell. Turning a display off lasts until the end of
+    /// it (`CGCompleteDisplayConfiguration` with `.forSession`). Read once: it cannot change while the app runs.
+    nonisolated static let loginSession: String? = {
+        let session = CGSessionCopyCurrentDictionary() as? [String: Any]
+        var size = 0
+        var bootSession: String?
+        if sysctlbyname("kern.bootsessionuuid", nil, &size, nil, 0) == 0, size > 0 {
+            var buffer = [CChar](repeating: 0, count: size)
+            if sysctlbyname("kern.bootsessionuuid", &buffer, &size, nil, 0) == 0 { bootSession = String(cString: buffer) }
+        }
+        return LoginSession.identifier(uniqueSession: session?["CGSSessionUniqueSessionUUID"] as? String,
+                                       auditSession: session?["kCGSSessionAuditIDKey"] as? Int,
+                                       bootSession: bootSession)
+    }()
 
     /// The built-in displays, remembered from when they were on: while a display is off, macOS does not say if it is
     /// built-in (see `DisplayPolicy.states`). Kept across app restarts, like `disabled`.
@@ -241,16 +268,28 @@ final class DisplayManager {
         let online = Self.onlineDisplays()
         let active = Set(Self.activeDisplays())
 
-        var disabled = self.disabled
-        // A display that is active again (for example after a reboot or replug) is no longer "off".
-        for id in active {
-            disabled[id] = nil
-        }
-        self.disabled = disabled
-
         let builtins = DisplayPolicy.rememberedBuiltins(
             builtinIDs, answers: Dictionary(uniqueKeysWithValues: active.map { ($0, CGDisplayIsBuiltin($0)) }))
         if builtins != builtinIDs { builtinIDs = builtins }
+
+        let storedMarks = offMarks
+        var marks = storedMarks
+        // A display that is active again (for example after a reboot or replug) is no longer "off".
+        for id in active {
+            marks.markOn(id)
+        }
+        // A mark from an earlier login session is stale: the display was unplugged while off. The built-in display
+        // keeps its mark (the safety net needs it), also when only macOS still says it is built-in.
+        let session = Self.loginSession
+        marks = marks.pruned(session: session, builtins: builtins.union(marks.names.keys.filter {
+            DisplayPolicy.isTrue(CGDisplayIsBuiltin($0))
+        }))
+        let dropped = storedMarks.names.keys.filter { marks.names[$0] == nil && !active.contains($0) }
+        if !dropped.isEmpty {
+            Self.log.notice("Turned off in an earlier login session, no longer marked: \(dropped.sorted(), privacy: .public)")
+        }
+        if marks != storedMarks { offMarks = marks }
+        let disabled = marks.names
 
         var ids = online.filter { active.contains($0) || disabled[$0] != nil }
         ids += active.filter { !ids.contains($0) }
@@ -942,9 +981,9 @@ final class DisplayManager {
                         self.scheduleRefresh()
                         return
                     }
-                    var disabled = self.disabled
-                    disabled[id] = enabled ? nil : name
-                    self.disabled = disabled
+                    var marks = self.offMarks
+                    if enabled { marks.markOn(id) } else { marks.markOff(id, name: name, session: Self.loginSession) }
+                    self.offMarks = marks
                     if enabled { self.turnedOnByApp.insert(id) }
                     self.scheduleRefresh()
                 }
@@ -1087,9 +1126,9 @@ final class DisplayManager {
                         }
                         return
                     }
-                    var disabled = self.disabled
-                    disabled[restored] = nil
-                    self.disabled = disabled
+                    var marks = self.offMarks
+                    marks.markOn(restored)
+                    self.offMarks = marks
                     self.byID[restored]?.isEnabled = true
                     self.turnedOnByApp.insert(restored)
                     self.scheduleRefresh()
