@@ -153,21 +153,15 @@ public enum DisplayPolicy {
         return RestoreOutcome(retries: !failures.isEmpty && attempt < maxRetries, error: error)
     }
 
-    /// True if, after the check again of an attempt to turn a display on (`restored`, `failures` as for
-    /// `restoreOutcome`), the error of an earlier failed attempt is stale: a display turned on, or the check again found
-    /// nothing to turn on, so a physical display is on again (for example, it came back by itself during the wait).
-    public static func restoreErrorIsStale(restored: UInt32?, failures: [(id: UInt32, error: String)]) -> Bool {
-        restored != nil || failures.isEmpty
-    }
-
-    /// The error to show after a check found a physical display on, or turned one on again. `restoreError` is the
-    /// error that an earlier failed attempt to turn a display on showed: it is stale now, so it is cleared if it is
-    /// still the error shown. Any other error stays. In OpenDisplay, any other write of the error already forgets
-    /// `restoreError` (see `DisplayManager.lastError`), so there `restoreError` is either nil or the error shown, and
-    /// the comparison is only a second guard.
-    public static func errorAfterRestore(lastError: String?, restoreError: String?) -> String? {
-        guard let restoreError, lastError == restoreError else { return lastError }
-        return nil
+    /// The error of keeping a display on (`ErrorSource.restore`) after the check again of an attempt to turn a display
+    /// on: `restored` and `failures` as for `restoreOutcome`, `shown` the error it shows, and `current` the error an
+    /// earlier attempt left. A display that turned on, or a check again that found nothing to turn on (a physical display
+    /// is on again, for example it came back by itself during the wait), clears it. A new error replaces it. A failure
+    /// that shows no error keeps it: no display is on yet.
+    public static func restoreError(current: String?, restored: UInt32?, failures: [(id: UInt32, error: String)],
+                                    shown: String?) -> String? {
+        guard restored == nil, !failures.isEmpty else { return nil }
+        return shown ?? current
     }
 
     /// The displays to try to turn on again, in order, because no display is on. Empty if nothing needs to change.
