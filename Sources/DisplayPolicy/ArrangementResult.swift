@@ -11,7 +11,7 @@ public enum ArrangementResult {
     /// The displays whose origin a main-display change moves, in order. `displays`: each active display with the display
     /// it mirrors (`CGDisplayMirrorsDisplay`, 0 when none).
     public static func displaysToMove(_ displays: [(id: UInt32, mirrors: UInt32)]) -> [UInt32] {
-        displays.map(\.id)
+        displays.filter { $0.mirrors == 0 }.map(\.id)
     }
 
     /// The error message for the first display that could not be moved, else `nil`. `results`: the `CGError` raw value

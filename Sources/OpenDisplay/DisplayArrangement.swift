@@ -22,7 +22,9 @@ enum DisplayArrangement {
         guard CGBeginDisplayConfiguration(&config) == .success, let config else {
             return "Could not start display configuration."
         }
-        let moved = ids.prefix(Int(count)).map { other in
+        // A display that mirrors another one is positioned by its master: moving it may fail, and would cancel the change.
+        let movable = ArrangementResult.displaysToMove(ids.prefix(Int(count)).map { (id: $0, mirrors: CGDisplayMirrorsDisplay($0)) })
+        let moved = movable.map { other in
             let bounds = CGDisplayBounds(other)
             return CGConfigureDisplayOrigin(config, other, Int32(bounds.minX - origin.x), Int32(bounds.minY - origin.y)).rawValue
         }
