@@ -13,7 +13,7 @@ enum DisplayControls {
         if display.supportsVolume { rows.append("volume") }
         if capabilities[VCP.contrast] != nil { rows.append("contrast") }
         rows.append("resolution")
-        if DisplayModes.refreshRates(id).count > 1 { rows.append("refreshRate") }
+        if display.refreshRates.count > 1 { rows.append("refreshRate") }
         if DisplayArrangement.canRotate(id) { rows.append("rotation") }
         if (capabilities[VCP.input]?.count ?? 0) > 1 { rows.append("input") }
         if !(capabilities[VCP.colorPreset] ?? []).isEmpty { rows.append("colorPreset") }
@@ -38,13 +38,7 @@ enum DisplayControls {
             return SteppedSliderRowView(
                 label: "Resolution", lowSymbol: "textformat.size.larger", highSymbol: "textformat.size.smaller", visible: visible,
                 choices: {
-                    _ = manager.revision
-                    let modes = DisplayModes.resolutions(id).reversed()
-                    return (modes.map(DisplayModes.resolutionTitle), modes.firstIndex { DisplayModes.isCurrent($0, of: id) }.map { modes.distance(from: modes.startIndex, to: $0) })
-                },
-                apply: { index in
-                    let modes = Array(DisplayModes.resolutions(id).reversed())
-                    if modes.indices.contains(index) { manager.setMode(display, modes[index]) }
+                    modeChoices(display.resolutions, title: DisplayModes.resolutionTitle, display: display, manager: manager)
                 }
             )
 
@@ -52,13 +46,7 @@ enum DisplayControls {
             return SteppedSliderRowView(
                 label: "Refresh Rate", lowSymbol: "tortoise.fill", highSymbol: "hare.fill", visible: visible,
                 choices: {
-                    _ = manager.revision
-                    let modes = Array(DisplayModes.refreshRates(id).reversed())
-                    return (modes.map(DisplayModes.refreshRateTitle), modes.firstIndex { DisplayModes.isCurrent($0, of: id) })
-                },
-                apply: { index in
-                    let modes = Array(DisplayModes.refreshRates(id).reversed())
-                    if modes.indices.contains(index) { manager.setMode(display, modes[index]) }
+                    modeChoices(display.refreshRates, title: DisplayModes.refreshRateTitle, display: display, manager: manager)
                 }
             )
 
@@ -67,10 +55,13 @@ enum DisplayControls {
             return SegmentedRowView(
                 symbol: "rotate.right", label: "Rotation", visible: visible,
                 choices: {
-                    _ = manager.revision
-                    return (rotations.map { $0 == 0 ? "Standard" : "\($0)°" }, rotations.firstIndex(of: DisplayArrangement.rotation(id)))
-                },
-                apply: { index in manager.setRotation(display, rotations[index]) }
+                    let choices = rotations.map { degrees in
+                        MenuChoice(title: degrees == 0 ? "Standard" : "\(degrees)°") {
+                            manager.setRotation(display, degrees)
+                        }
+                    }
+                    return (choices, rotations.firstIndex(of: display.rotation))
+                }
             )
 
         case "input":
@@ -78,11 +69,11 @@ enum DisplayControls {
                 symbol: "cable.connector", label: "Input", visible: visible,
                 choices: {
                     let inputs = display.capabilities.codes[VCP.input] ?? []
-                    return (inputs.map { inputName($0, vendor: CGDisplayVendorNumber(display.id)) }, display.input.flatMap { inputs.firstIndex(of: $0) })
-                },
-                apply: { index in
-                    let inputs = display.capabilities.codes[VCP.input] ?? []
-                    if inputs.indices.contains(index) { manager.setInput(display, inputs[index]) }
+                    let vendor = CGDisplayVendorNumber(display.id)
+                    let choices = inputs.map { input in
+                        MenuChoice(title: inputName(input, vendor: vendor)) { manager.setInput(display, input) }
+                    }
+                    return (choices, display.input.flatMap { inputs.firstIndex(of: $0) })
                 }
             )
 
@@ -91,19 +82,18 @@ enum DisplayControls {
                 symbol: "paintpalette", label: "Color Preset", visible: visible,
                 choices: {
                     let presets = display.capabilities.codes[VCP.colorPreset] ?? []
-                    return (presets.map(colorPresetName), display.colorPreset.flatMap { presets.firstIndex(of: $0) })
-                },
-                apply: { index in
-                    let presets = display.capabilities.codes[VCP.colorPreset] ?? []
-                    if presets.indices.contains(index) { manager.setColorPreset(display, presets[index]) }
+                    let choices = presets.map { preset in
+                        MenuChoice(title: colorPresetName(preset)) { manager.setColorPreset(display, preset) }
+                    }
+                    return (choices, display.colorPreset.flatMap { presets.firstIndex(of: $0) })
                 }
             )
 
         case "main":
             return ToggleRowView(
                 symbol: "menubar.rectangle", label: "Main Display", visible: visible,
-                isOn: { _ = manager.revision; return DisplayArrangement.isMain(id) },
-                action: { _ in if !DisplayArrangement.isMain(id) { manager.setMain(display) } }
+                isOn: { display.isMain },
+                action: { _ in if !display.isMain { manager.setMain(display) } }
             )
 
         case "sync":
@@ -128,6 +118,17 @@ enum DisplayControls {
         default:
             return nil
         }
+    }
+
+    /// The choices of a display mode row, low end first (the lists are largest first), and the index of the display's
+    /// mode. Each choice applies its own mode.
+    private static func modeChoices(
+        _ modes: [CGDisplayMode], title: (CGDisplayMode) -> String, display: Display, manager: DisplayManager
+    ) -> (choices: [MenuChoice], current: Int?) {
+        let modes = Array(modes.reversed())
+        let current = display.mode?.ioDisplayModeID
+        let choices = modes.map { mode in MenuChoice(title: title(mode)) { manager.setMode(display, mode) } }
+        return (choices, modes.firstIndex { $0.ioDisplayModeID == current })
     }
 
     // MARK: Names

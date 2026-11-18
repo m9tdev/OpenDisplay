@@ -31,17 +31,17 @@ final class PresetStore {
 }
 
 extension DisplayManager {
-    /// The displays as `PresetPolicy` needs them. Mode, main display and rotation are read only for a display that
-    /// is on: macOS does not report them for a display that is off.
+    /// The displays as `PresetPolicy` needs them. Mode, main display and rotation are from the last refresh, and only
+    /// for a display that is on: macOS does not report them for a display that is off.
     private var presetDisplays: [PresetPolicy.Display] {
         displays.map { display in
             let on = display.isEnabled
             return PresetPolicy.Display(
                 id: display.id, key: display.knownKey, name: display.name, isEnabled: on,
-                mode: on ? DisplayModes.current(display.id).map {
+                mode: on ? display.mode.map {
                     .init(width: $0.width, height: $0.height, pixelWidth: $0.pixelWidth, refreshRate: $0.refreshRate)
                 } : nil,
-                isMain: on && DisplayArrangement.isMain(display.id), rotation: on ? DisplayArrangement.rotation(display.id) : 0,
+                isMain: on && display.isMain, rotation: on ? display.rotation : 0,
                 brightness: display.brightness
             )
         }

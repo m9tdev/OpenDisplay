@@ -4,6 +4,13 @@ import DisplayPolicy
 // Control rows for a flat menu: no submenus. They use the grid in `Layout`: a small icon in the icon
 // column, and the control or label from `Layout.controlInset` to the right edge.
 
+/// A choice in a control row: its title, and what choosing it does. It carries its own value (for example a display
+/// mode), so choosing it applies the value the row showed, even if the list has changed since.
+struct MenuChoice {
+    let title: String
+    let apply: @MainActor () -> Void
+}
+
 // MARK: - Stepped slider
 
 /// A slider over a list of choices (for example resolutions), with a caption that shows the current choice.
@@ -12,22 +19,19 @@ final class SteppedSliderRowView: MenuRowView {
     private let label = NSTextField(labelWithString: "")
     private let valueLabel = NSTextField(labelWithString: "")
     private let slider = MenuSlider(value: 0, minValue: 0, maxValue: 1, target: nil, action: nil)
-    private let choices: @MainActor () -> (titles: [String], current: Int?)
-    private let apply: @MainActor (Int) -> Void
-    private var titles: [String] = []
+    private let choices: @MainActor () -> (choices: [MenuChoice], current: Int?)
+    /// The choices the slider shows now.
+    private var shown: [MenuChoice] = []
 
     /// - Parameters:
-    ///   - choices: The titles in order (low end first) and the index of the current one.
-    ///     Display modes are not observable, so `keepUpdated` runs it again after each refresh.
-    ///   - apply: Applies the choice at an index.
+    ///   - choices: The choices in order (low end first) and the index of the current one. `keepUpdated` runs it
+    ///     again when what it reads changes.
     init(
         label text: String, lowSymbol: String, highSymbol: String,
         visible: @escaping @MainActor () -> Bool,
-        choices: @escaping @MainActor () -> (titles: [String], current: Int?),
-        apply: @escaping @MainActor (Int) -> Void
+        choices: @escaping @MainActor () -> (choices: [MenuChoice], current: Int?)
     ) {
         self.choices = choices
-        self.apply = apply
         super.init(height: 44)
         // Like the other rows, so the row under the pointer always shows.
         highlightsOnHover = true
@@ -81,30 +85,31 @@ final class SteppedSliderRowView: MenuRowView {
     required init?(coder: NSCoder) { fatalError() }
 
     private func reload() {
-        let (titles, current) = choices()
-        self.titles = titles
-        slider.maxValue = Double(max(titles.count - 1, 1))
-        slider.isEnabled = titles.count > 1
+        let (shown, current) = choices()
+        self.shown = shown
+        slider.maxValue = Double(max(shown.count - 1, 1))
+        slider.isEnabled = shown.count > 1
         if let current, slider.gesture.followsStoredValue {
             slider.doubleValue = Double(current)
-            valueLabel.stringValue = titles[current]
+            valueLabel.stringValue = shown[current].title
         }
     }
 
     @objc private func slid() {
         // Snap to a choice and show it. It applies when the mouse goes up, or at once without the mouse.
         guard slider.gesture.moved(to: slider.doubleValue) else { return }
-        let index = min(max(Int(slider.doubleValue.rounded()), 0), titles.count - 1)
+        let index = min(max(Int(slider.doubleValue.rounded()), 0), shown.count - 1)
         slider.doubleValue = Double(index)
-        valueLabel.stringValue = titles.indices.contains(index) ? titles[index] : ""
+        valueLabel.stringValue = shown.indices.contains(index) ? shown[index].title : ""
         applyChoice()
     }
 
     /// Returns whether it applied a choice.
     @discardableResult private func applyChoice() -> Bool {
-        guard let choice = slider.gesture.choice(Int(slider.doubleValue.rounded()), current: choices().current)
+        guard let choice = slider.gesture.choice(Int(slider.doubleValue.rounded()), current: choices().current),
+              shown.indices.contains(choice)
         else { return false }
-        apply(choice)
+        shown[choice].apply()
         return true
     }
 
@@ -120,13 +125,17 @@ final class SteppedSliderRowView: MenuRowView {
 /// A choice without an order (for example the input of an external display), as a segmented control.
 final class SegmentedRowView: MenuRowView {
     private let control = CapsuleSegmentedControl()
-    private let choices: @MainActor () -> (titles: [String], current: Int?)
+    private let choices: @MainActor () -> (choices: [MenuChoice], current: Int?)
+    /// The choices the control shows now: its titles are theirs.
+    private var shown: [MenuChoice] = []
 
+    /// - Parameters:
+    ///   - choices: The choices in order and the index of the current one. `keepUpdated` runs it again when what it
+    ///     reads changes.
     init(
         symbol: String, label: String,
         visible: @escaping @MainActor () -> Bool,
-        choices: @escaping @MainActor () -> (titles: [String], current: Int?),
-        apply: @escaping @MainActor (Int) -> Void
+        choices: @escaping @MainActor () -> (choices: [MenuChoice], current: Int?)
     ) {
         self.choices = choices
         super.init(height: 34)
@@ -136,7 +145,7 @@ final class SegmentedRowView: MenuRowView {
         let icon = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: label)!)
         icon.contentTintColor = .secondaryLabelColor
         icon.toolTip = label
-        control.onSelect = apply
+        control.onSelect = { [weak self] index in self?.shown[index].apply() }
         control.setAccessibilityLabel(label)
         control.toolTip = label
 
@@ -155,8 +164,9 @@ final class SegmentedRowView: MenuRowView {
 
         keepUpdated(self) { view in
             view.setVisible(visible())
-            let (titles, current) = view.choices()
-            view.control.titles = titles
+            let (shown, current) = view.choices()
+            view.shown = shown
+            view.control.titles = shown.map(\.title)
             view.control.select(current)
         }
     }
