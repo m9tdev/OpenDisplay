@@ -41,6 +41,13 @@ public struct ErrorSlots: Equatable, Sendable {
         slots[.display(id)] = nil
     }
 
+    /// A preset starts and changes the displays `ids`: the error of the last preset goes, and so does the error of the
+    /// earlier change of each of these displays, as at the start of any change of a display.
+    public mutating func startPreset(changing ids: [UInt32]) {
+        slots[.preset] = nil
+        for id in ids { startChange(of: id) }
+    }
+
     /// Clears every error, for example when the user has seen them.
     public mutating func removeAll() {
         slots = [:]

@@ -89,7 +89,7 @@ extension DisplayManager {
         guard allowed else {
             return finish(PresetPolicy.turnsOffAllDisplays(notConnected: plan.notConnected))
         }
-        errors[.preset] = nil
+        errors.startPreset(changing: targets.map { $0.id })
         let steps = targets
         let builtins = builtinIDs
         let skipped = plan.skipped
