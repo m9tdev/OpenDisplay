@@ -159,11 +159,11 @@ public enum PresetPolicy {
         }
     }
 
-    /// The displays that `targets` turn on and off. A display that would be both stays on: a display that is off is
-    /// never turned off as well (`targets` gives each display one entry, so this is only a safeguard).
+    /// The displays that `targets` turn on and off. `targets` gives each display one entry, so no display is in both.
     public static func changes(_ targets: [(id: UInt32, state: Preset.DisplayState)]) -> Changes {
         let turnsOn = Set(targets.filter(\.state.isEnabled).map(\.id))
-        let turnsOff = Set(targets.filter { !$0.state.isEnabled }.map(\.id)).subtracting(turnsOn)
+        let turnsOff = Set(targets.filter { !$0.state.isEnabled }.map(\.id))
+        assert(turnsOn.isDisjoint(with: turnsOff), "A display has two entries: pass the result of `targets`.")
         return Changes(turnsOn: turnsOn, turnsOff: turnsOff)
     }
 }
