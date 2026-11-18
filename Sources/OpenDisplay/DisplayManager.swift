@@ -25,9 +25,14 @@ final class Display: Identifiable {
     var brightnessError: String?
     /// Set when macOS did not let the app dim the display in software (see `DimmingOutcome`).
     var dimmingError: String?
+    /// Set while writes to the display fail: DDC writes over its connection, or the built-in brightness (see
+    /// `WriteFailures`).
+    var writeError: String?
+    /// The built-in brightness writes that failed in a row.
+    @ObservationIgnored var builtinWrites = WriteFailures.builtin
     /// The errors the menu shows under the display.
     var errorMessage: String? {
-        let errors = [brightnessError, dimmingError].compactMap { $0 }
+        let errors = [brightnessError, dimmingError, writeError].compactMap { $0 }
         return errors.isEmpty ? nil : errors.joined(separator: ". ")
     }
     /// 0...1. `nil` while we do not know the value yet.
@@ -314,7 +319,7 @@ final class DisplayManager {
         }
         // macOS resets the color table of a display that goes away, and its ID may later belong to another monitor.
         for id in byID.keys where !next.contains(where: { $0.id == id }) {
-            SoftwareDimming.restore(id)
+            SoftwareDimming.restore(id, keepsOnFailure: false)
         }
         byID = Dictionary(uniqueKeysWithValues: next.map { ($0.id, $0) })
         displays = next.sorted { ($0.isBuiltin ? 1 : 0, $0.id) < ($1.isBuiltin ? 1 : 0, $1.id) }
@@ -392,6 +397,19 @@ final class DisplayManager {
         guard display.ddc !== connection else { return }
         display.ddc = connection
         display.connectionGeneration += 1
+        // A new connection has its own count of failed writes.
+        display.writeError = nil
+        connection?.onWriteErrorChange { [weak display, weak connection] error in
+            MainActor.assumeIsolated {
+                guard let display, let connection, display.ddc === connection else { return }
+                if let error {
+                    Self.log.error("Display \(display.id, privacy: .public): DDC writes fail: \(error, privacy: .public)")
+                } else {
+                    Self.log.notice("Display \(display.id, privacy: .public): DDC writes work again")
+                }
+                display.writeError = error
+            }
+        }
         display.brightnessDDC = display.brightnessDDC.droppingReads()
         display.volumeDDC = display.volumeDDC.droppingReads()
         display.muteDDC = display.muteDDC.droppingReads()
@@ -499,7 +517,13 @@ final class DisplayManager {
         guard let level else { return }
         if display.isBuiltin {
             lastBuiltinBacklight = Float(level)
-            _ = PrivateAPI.setBrightness?(display.id, Float(level))
+            let result = PrivateAPI.setBrightness?(display.id, Float(level))
+            if display.builtinWrites.record(succeeded: result == 0) {
+                display.writeError = display.builtinWrites.error
+                if display.writeError != nil {
+                    Self.log.error("Display \(display.id, privacy: .public): could not set the brightness (error \(result ?? -1, privacy: .public))")
+                }
+            }
         } else {
             // nil: the write waits for the read in flight, which tells the monitor's maximum.
             if let raw = display.brightnessDDC.set(level) {
@@ -511,11 +535,16 @@ final class DisplayManager {
     /// Dims `display` in software by `dimming` (1: the normal image), for the slider position `slider` (nil: none known
     /// yet). If macOS does not let the app dim it, the display shows the brightness it really has, and an error.
     private func applyDimming(_ display: Display, _ dimming: Double, slider: Double?) {
-        let dimmed = SoftwareDimming.set(dimming, for: display.id)
-        let outcome = DimmingOutcome(control: display.brightnessControl, slider: slider, dimming: dimming, dimmed: dimmed)
+        // For a dimming of 1: true if the display shows its normal image again.
+        let done = SoftwareDimming.set(dimming, for: display.id)
+        let outcome = DimmingOutcome(control: display.brightnessControl, slider: slider, dimming: dimming, dimmed: done,
+                                     undone: done)
         if display.brightness != outcome.slider { display.brightness = outcome.slider }
         display.dimming = outcome.dimming
-        if display.dimmingError != outcome.error { display.dimmingError = outcome.error }
+        if display.dimmingError != outcome.error {
+            if let error = outcome.error { Self.log.error("Display \(display.id, privacy: .public): \(error, privacy: .public)") }
+            display.dimmingError = outcome.error
+        }
     }
 
     /// Sets the DDC brightness `level` (0...1) of an external display directly, for the calibration: the app does not

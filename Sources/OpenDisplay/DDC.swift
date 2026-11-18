@@ -14,6 +14,10 @@ final class DDCService: @unchecked Sendable {
     /// Newest value to write for each VCP code.
     private var pending: [UInt8: UInt16] = [:]
     private var busy = false
+    /// The writes that failed in a row over this connection (see `WriteFailures`). Used on `queue` only.
+    private var writeFailures = WriteFailures.ddc
+    /// Called on the main queue when the error for the failed writes changes.
+    private var writeErrorChanged: (@Sendable (String?) -> Void)?
 
     private static let chipAddress: UInt32 = 0x37
     private static let dataAddress: UInt32 = 0x51
@@ -21,6 +25,14 @@ final class DDCService: @unchecked Sendable {
     init(service: CFTypeRef, entryID: UInt64?) {
         self.service = service
         self.entryID = entryID
+    }
+
+    /// Calls `handler` on the main queue each time the error for failed writes over this connection changes: the error
+    /// to show, or nil when a write works again.
+    func onWriteErrorChange(_ handler: @escaping @Sendable (String?) -> Void) {
+        lock.lock()
+        writeErrorChanged = handler
+        lock.unlock()
     }
 
     /// Queue a write. If a write is in progress, only the newest value for each VCP code is sent next.
@@ -46,7 +58,15 @@ final class DDCService: @unchecked Sendable {
             }
             pending[vcp] = nil
             lock.unlock()
-            _ = write(vcp: vcp, value: value)
+            // Only a transport error fails: the monitor does not acknowledge a write.
+            guard writeFailures.record(succeeded: write(vcp: vcp, value: value)) else { continue }
+            let error = writeFailures.error
+            lock.lock()
+            let handler = writeErrorChanged
+            lock.unlock()
+            if let handler {
+                DispatchQueue.main.async { handler(error) }
+            }
         }
     }
 

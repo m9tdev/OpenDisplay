@@ -55,6 +55,16 @@ public enum CalibrationPolicy {
         // Without the built-in display there is nothing to follow, but the shared brightness works without it.
         return sharedBrightness.map { .applyShared($0) } ?? .nothing
     }
+
+    /// The error to show when the calibration could not turn automatic brightness or True Tone back on, nil if
+    /// nothing failed. Without it, the setting stays off for good and the user does not know why.
+    public static func restoreError(autoBrightnessFailed: Bool, trueToneFailed: Bool) -> String? {
+        let names = [autoBrightnessFailed ? "automatic brightness" : nil, trueToneFailed ? "True Tone" : nil]
+            .compactMap { $0 }
+        guard !names.isEmpty else { return nil }
+        return "Could not turn \(names.joined(separator: " and ")) back on after the calibration. "
+            + "Check \(names.count > 1 ? "them" : "it") in System Settings > Displays."
+    }
 }
 
 /// Keeps the built-in display at the calibration's level when macOS changes it, without a fast loop: if macOS rounds

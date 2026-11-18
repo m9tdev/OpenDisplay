@@ -6,6 +6,9 @@ public enum ErrorSource: Hashable, Comparable, Sendable {
     /// Keeping a display on: a failed attempt to turn a display on again after the last one went away. First in the
     /// menu: the Mac may have no screen.
     case restore
+    /// The brightness calibration: a setting it turned off for the comparison (automatic brightness, True Tone) that it
+    /// could not turn back on.
+    case calibration
     /// Turning a display on or off from the menu, display mode and arrangement changes, and presets: the result of the
     /// latest one.
     case action
