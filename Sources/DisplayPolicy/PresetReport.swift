@@ -49,10 +49,39 @@ extension PresetPolicy {
         return "Skipped the resolution of \(state.name): \(state.width) × \(state.height)\(hiDPI) at \(rate) Hz is not available."
     }
 
-    /// The message after Apply, from what it skipped and the errors of its steps, in that order. `nil` when Apply did
+    /// The results of Apply's steps, by display. The first failure of a display is its error: a later step of the
+    /// same display that fails adds nothing (a display that did not turn on cannot change its resolution either, and
+    /// the first error tells why).
+    public struct StepResults: Equatable, Sendable {
+        /// The displays that failed, in the order of their first failure, with that failure.
+        private var failures: [(id: UInt32, error: String)] = []
+
+        public init() {}
+
+        /// A step of display `id` worked (`nil`) or failed with `error`.
+        public mutating func record(_ id: UInt32, error: String?) {
+            guard let error, !failed(id) else { return }
+            failures.append((id, error))
+        }
+
+        /// True when a step of display `id` failed.
+        public func failed(_ id: UInt32) -> Bool {
+            failures.contains { $0.id == id }
+        }
+
+        /// One error per failed display, in the order they failed.
+        public var errors: [String] { failures.map(\.error) }
+
+        public static func == (lhs: StepResults, rhs: StepResults) -> Bool {
+            lhs.failures.elementsEqual(rhs.failures) { $0.id == $1.id && $0.error == $1.error }
+        }
+    }
+
+    /// The message after Apply: what it skipped, then one error per display that failed. `nil` when Apply did
     /// everything.
-    public static func report(_ messages: [String]) -> String? {
-        messages.isEmpty ? nil : messages.joined(separator: " ")
+    public static func report(skipped: [String], results: StepResults) -> String? {
+        let messages = skipped + results.errors
+        return messages.isEmpty ? nil : messages.joined(separator: " ")
     }
 
     /// The message Settings shows for Apply, and whether an Apply is still running. Apply finishes later, so its

@@ -874,9 +874,10 @@ final class DisplayManager {
     /// Shows the new state immediately, then applies it after the menu animation.
     /// Applying blocks until macOS has changed the display setup, so it runs off the main thread.
     func setEnabled(_ display: Display, _ enabled: Bool) {
-        errors[.action] = nil
+        // Only this display's error goes: an error about another display stays until the user has seen it.
+        errors.startChange(of: display.id)
         guard let configure = PrivateAPI.configureDisplayEnabled else {
-            errors[.action] = "This macOS version does not support turning displays off."
+            errors[.display(display.id)] = "This macOS version does not support turning displays off."
             return
         }
         if !enabled {
@@ -887,7 +888,7 @@ final class DisplayManager {
                 displays: \(Self.describe(states), privacy: .public)
                 """)
             guard allowed else {
-                errors[.action] = "You cannot turn off the last display that is on."
+                errors[.display(display.id)] = "You cannot turn off the last display that is on."
                 return
             }
         }
@@ -914,7 +915,7 @@ final class DisplayManager {
                             let outcome = self.changes.end(
                                 change, error: "You cannot turn off the last display that is on.")
                             if outcome.isLatest { display.isEnabled = true }
-                            if let error = outcome.shownError { self.errors[.action] = error }
+                            if let error = outcome.shownError { self.errors[.display(id)] = error }
                             self.scheduleRefresh()
                         }
                     }
@@ -936,7 +937,7 @@ final class DisplayManager {
                                 before a later change: \(error, privacy: .private)
                                 """)
                         }
-                        if let shown = outcome.shownError { self.errors[.action] = shown }
+                        if let shown = outcome.shownError { self.errors[.display(id)] = shown }
                         // macOS may have changed part of the setup: show what it is now.
                         self.scheduleRefresh()
                         return
@@ -1127,21 +1128,22 @@ final class DisplayManager {
         let id = display.id
         // A display mode cannot change after macOS creates it, so it is safe to use on another thread.
         nonisolated(unsafe) let mode = mode
-        applyInBackground {
+        applyInBackground(id) {
             if let error = DisplayModes.unavailable(mode, on: id) { return error }
             return DisplayModes.apply(mode, to: id)
         }
     }
 
-    /// Runs a display change off the main thread (it blocks until macOS has changed the display),
-    /// then shows its error, if any, and reads the displays again.
-    private func applyInBackground(_ change: @escaping @Sendable () -> String?) {
-        errors[.action] = nil
+    /// Runs a change of display `id` off the main thread (it blocks until macOS has changed the display),
+    /// then shows its error, if any, and reads the displays again. The error is about display `id`: it replaces only
+    /// the error of that display's earlier change.
+    private func applyInBackground(_ id: CGDirectDisplayID, _ change: @escaping @Sendable () -> String?) {
+        errors.startChange(of: id)
         configQueue.async {
             let error = change()
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    if let error { self.errors[.action] = error }
+                    if let error { self.errors[.display(id)] = error }
                     // Show the new mode, rotation or main display at once: the refresh waits for macOS to settle,
                     // and until then the menu would take the old value as the current one.
                     let active = Set(Self.activeDisplays())
@@ -1167,14 +1169,15 @@ final class DisplayManager {
         display.isMain = isActive && DisplayArrangement.isMain(id)
     }
 
+    /// Makes `display` the main display. This moves the other displays too; its error is about `display`.
     func setMain(_ display: Display) {
         let id = display.id
-        applyInBackground { DisplayArrangement.setMain(id) }
+        applyInBackground(id) { DisplayArrangement.setMain(id) }
     }
 
     func setRotation(_ display: Display, _ degrees: Int) {
         let id = display.id
-        applyInBackground { DisplayArrangement.setRotation(degrees, for: id) }
+        applyInBackground(id) { DisplayArrangement.setRotation(degrees, for: id) }
     }
 
     // MARK: External display settings (DDC)
