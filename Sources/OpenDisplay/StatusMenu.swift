@@ -108,7 +108,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         closingForReopen = false
         // The user has seen the error now. When macOS closed the menu (during a display change), it opens again, so
         // the error stays for that.
-        if closedByUser { manager.lastError = nil }
+        if closedByUser { manager.errors.removeAll() }
         update()
     }
 

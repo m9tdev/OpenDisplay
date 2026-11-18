@@ -62,7 +62,7 @@ extension DisplayManager {
     /// the same message.
     func apply(_ preset: Preset, done: @escaping @MainActor (String?) -> Void = { _ in }) {
         let finish: @MainActor (String?) -> Void = { message in
-            self.lastError = message
+            self.errors[.action] = message
             done(message)
         }
         guard let configure = PrivateAPI.configureDisplayEnabled else {
@@ -89,7 +89,7 @@ extension DisplayManager {
         guard allowed else {
             return finish(PresetPolicy.turnsOffAllDisplays(notConnected: plan.notConnected))
         }
-        lastError = nil
+        errors[.action] = nil
         let steps = targets
         let builtins = builtinIDs
         let skipped = plan.skipped
