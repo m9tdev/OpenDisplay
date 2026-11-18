@@ -36,9 +36,9 @@ final class CalibrationSession {
     /// The pending read of the built-in brightness after reports away from the level stop (see
     /// `CalibrationBuiltinWatch.settleCheckTime`). Each report schedules it again; `finish` cancels it.
     @ObservationIgnored private var settleCheck: DispatchWorkItem?
-    /// The built-in brightness writes that failed in a row. While the last one failed, the built-in display is not at
-    /// the level of the step, so the window warns that the matches may be wrong.
-    private(set) var builtinWrites = WriteFailures.builtin
+    /// The displays whose software dimming could not be undone at the start: they may be darker than the step asks, so
+    /// the window warns that the matches may be wrong.
+    private(set) var stillDimmed: Set<CGDirectDisplayID> = []
 
     private static var current: CalibrationSession?
     private static let recordKey = "calibrationInProgress"
@@ -97,8 +97,8 @@ final class CalibrationSession {
         for display in [builtin, external] {
             display.dimming = 1
             if !SoftwareDimming.restore(display.id) {
-                // The display may stay dimmed during the comparison. A later brightness change tries again.
                 DisplayManager.log.error("Calibration: could not undo the software dimming of display \(display.id, privacy: .public)")
+                stillDimmed.insert(display.id)
             }
         }
         showWindows()
@@ -169,15 +169,17 @@ final class CalibrationSession {
         if flow.usesDDC {
             manager.setCalibrationLevel(external, level)
         } else {
-            SoftwareDimming.set(BrightnessCurve.light(slider: level), for: external.id)
+            // The dimming starts from the saved table, so once it works the display has the step's light.
+            if SoftwareDimming.set(BrightnessCurve.light(slider: level), for: external.id), stillDimmed.contains(external.id) {
+                stillDimmed.remove(external.id)
+            }
         }
     }
 
-    /// Sets the built-in brightness `level`, and counts a failure (see `builtinWrites`).
+    /// Sets the built-in brightness `level`. While the writes fail, the built-in display shows an error and the window a
+    /// warning (see `DisplayManager.recordBuiltinWrite`).
     private func setBuiltin(_ level: Float) {
-        let result = PrivateAPI.setBrightness?(builtin.id, level)
-        guard builtinWrites.record(succeeded: result == 0), builtinWrites.error != nil else { return }
-        DisplayManager.log.error("Calibration: could not set the built-in brightness (error \(result ?? -1, privacy: .public))")
+        manager.recordBuiltinWrite(builtin, result: PrivateAPI.setBrightness?(builtin.id, level))
     }
 
     // MARK: Finish
@@ -276,23 +278,21 @@ final class CalibrationSession {
 
     private static func apply(_ restore: CalibrationRecord.Restore, builtin: Display?, external: Display?,
                               manager: DisplayManager) {
-        var autoBrightnessFailed = false
-        var trueToneFailed = false
+        // A setting that does not come back shows an error, else it stays off and the user does not know why.
         if restore.autoBrightness, let builtin {
-            autoBrightnessFailed = PrivateAPI.setAutoBrightness?(builtin.id, true) != 0
+            let on = PrivateAPI.setAutoBrightness?(builtin.id, true) == 0
+            manager.calibrationRestored(autoBrightnessOn: on, trueToneOn: nil)
         }
         if restore.trueTone {
-            let trueTone = PrivateAPI.trueToneClient()
-            trueTone?.setValue(true, forKey: "enabled")
-            // The setter returns nothing through key-value coding: read the setting back.
-            trueToneFailed = trueTone?.value(forKey: "enabled") as? Bool != true
-        }
-        if (restore.autoBrightness && builtin != nil) || restore.trueTone {
-            let error = CalibrationPolicy.restoreError(autoBrightnessFailed: autoBrightnessFailed,
-                                                       trueToneFailed: trueToneFailed)
-            if let error { DisplayManager.log.error("Calibration: \(error, privacy: .public)") }
-            // Without this error, the setting stays off and the user does not know why. A restore that works clears it.
-            manager.errors[.calibration] = error
+            PrivateAPI.trueToneClient()?.setValue(true, forKey: "enabled")
+            // Through key-value coding the setter returns nothing, and the new value may not read back at once: read
+            // it back after a moment.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak manager] in
+                MainActor.assumeIsolated {
+                    let on = PrivateAPI.trueToneClient()?.value(forKey: "enabled") as? Bool == true
+                    manager?.calibrationRestored(autoBrightnessOn: nil, trueToneOn: on)
+                }
+            }
         }
         // The built-in display first: it also sets a synced external display.
         if let brightness = restore.builtinBrightness, let builtin, builtin.isEnabled {
@@ -382,11 +382,13 @@ private struct CalibrationView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                if session.builtinWrites.error != nil {
-                    Label("Could not set the brightness of the built-in display, so the matches may be wrong.",
-                          systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
+                if session.builtin.writeError != nil {
+                    warning("Could not set the brightness of \(builtinName), so the matches may be wrong.")
+                }
+                if !session.stillDimmed.isEmpty {
+                    let names = [session.builtin, session.external].filter { session.stillDimmed.contains($0.id) }
+                        .map { $0.isBuiltin ? builtinName : externalName }
+                    warning("Could not undo the software dimming of \(names.joined(separator: " and ")), so the matches may be wrong.")
                 }
                 if flow.isFirstStep {
                     Text("Automatic brightness and True Tone stop until you finish. If Night Shift is on, turn it off first. If the monitor has automatic brightness, dynamic contrast, or an eco mode, turn it off too.")
@@ -399,6 +401,12 @@ private struct CalibrationView: View {
         }
         .padding(20)
         .frame(width: 440)
+    }
+
+    private func warning(_ text: String) -> some View {
+        Label(text, systemImage: "exclamationmark.triangle")
+            .foregroundStyle(.orange)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var instruction: String {

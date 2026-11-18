@@ -67,6 +67,41 @@ public enum CalibrationPolicy {
     }
 }
 
+/// The settings the calibration could not turn back on (automatic brightness, True Tone), for the error the menu shows.
+///
+/// Each setting keeps its failure until it is on again or the user has seen the error, so the result of one setting
+/// does not clear the failure of the other. A check never adds a failure: a setting that is off without a failed
+/// restore is the user's choice.
+public struct CalibrationRestoreFailures: Equatable, Sendable {
+    public private(set) var autoBrightness = false
+    public private(set) var trueTone = false
+
+    public init() {}
+
+    /// The error to show, nil if none.
+    public var error: String? {
+        CalibrationPolicy.restoreError(autoBrightnessFailed: autoBrightness, trueToneFailed: trueTone)
+    }
+
+    /// The calibration turned settings back on.
+    /// - Parameters:
+    ///   - autoBrightnessOn: Whether automatic brightness is on after the restore; nil if this restore did not set it.
+    ///   - trueToneOn: The same for True Tone.
+    ///   - errorShown: False if the menu shows no calibration error now: the user has seen and closed an earlier one.
+    public mutating func restored(autoBrightnessOn: Bool?, trueToneOn: Bool?, errorShown: Bool) {
+        if !errorShown { self = Self() }
+        if let autoBrightnessOn { autoBrightness = !autoBrightnessOn }
+        if let trueToneOn { trueTone = !trueToneOn }
+    }
+
+    /// What macOS reports now (nil: not known). A failed setting that is on now is no longer an error.
+    public mutating func checked(autoBrightnessOn: Bool?, trueToneOn: Bool?, errorShown: Bool) {
+        if !errorShown { self = Self() }
+        if autoBrightnessOn == true { autoBrightness = false }
+        if trueToneOn == true { trueTone = false }
+    }
+}
+
 /// Keeps the built-in display at the calibration's level when macOS changes it, without a fast loop: if macOS rounds
 /// or clamps the level it reports, and reports each set, each set again would bring another report. If macOS reported
 /// each set more than a second late and never with the level, it would go on at about one set a second until the

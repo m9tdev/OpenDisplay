@@ -41,4 +41,21 @@ public struct WriteFailures: Equatable, Sendable {
         inARow = succeeded ? 0 : inARow + 1
         return error != before
     }
+
+    /// Counts one DDC read: one that works shows that the transport works, like a write that works. A failed read
+    /// counts nothing, since reads also fail when the monitor is slow to answer.
+    /// - Returns: True if `error` changed.
+    @discardableResult
+    public mutating func recordRead(succeeded: Bool) -> Bool {
+        succeeded ? record(succeeded: true) : false
+    }
+
+    /// Starts the count again, for example after a wake: writes to a monitor that slept can fail.
+    /// - Returns: True if `error` changed.
+    @discardableResult
+    public mutating func reset() -> Bool {
+        let before = error
+        inARow = 0
+        return error != before
+    }
 }

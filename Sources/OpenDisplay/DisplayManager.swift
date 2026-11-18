@@ -209,7 +209,11 @@ final class DisplayManager {
         wakeObservers = [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification].map { name in
             workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Self.log.notice("Wake: \(name.rawValue, privacy: .public)")
-                MainActor.assumeIsolated { self?.scheduleRefresh() }
+                MainActor.assumeIsolated {
+                    // Writes to a monitor that slept can fail: start their count again.
+                    self?.displays.forEach { $0.ddc?.resetWriteFailures() }
+                    self?.scheduleRefresh()
+                }
             }
         }
     }
@@ -358,6 +362,43 @@ final class DisplayManager {
         keepADisplayOn()
         // After a crash during a calibration: at the launch, and for a display that was not there, when it comes back.
         CalibrationSession.restoreUnfinished(manager: self)
+        checkCalibrationRestore()
+    }
+
+    // MARK: Settings the calibration could not turn back on
+
+    @ObservationIgnored private var calibrationRestore = CalibrationRestoreFailures()
+
+    /// The calibration turned settings back on: whether each is on now, nil for one it did not set.
+    func calibrationRestored(autoBrightnessOn: Bool?, trueToneOn: Bool?) {
+        calibrationRestore.restored(autoBrightnessOn: autoBrightnessOn, trueToneOn: trueToneOn,
+                                    errorShown: errors[.calibration] != nil)
+        showCalibrationRestoreError()
+    }
+
+    /// Reads the settings the calibration could not turn back on: once one is on (for example the user turned it on in
+    /// System Settings), its error goes.
+    private func checkCalibrationRestore() {
+        guard errors[.calibration] != nil else { return }
+        var autoBrightnessOn: Bool?
+        if let builtin = displays.first(where: { $0.isBuiltin && $0.isEnabled }), let get = PrivateAPI.getAutoBrightness {
+            var on = false
+            if get(builtin.id, &on) == 0 { autoBrightnessOn = on }
+        }
+        let trueToneOn = PrivateAPI.trueToneClient()?.value(forKey: "enabled") as? Bool
+        calibrationRestore.checked(autoBrightnessOn: autoBrightnessOn, trueToneOn: trueToneOn, errorShown: true)
+        showCalibrationRestoreError()
+    }
+
+    private func showCalibrationRestoreError() {
+        let error = calibrationRestore.error
+        guard error != errors[.calibration] else { return }
+        if let error {
+            Self.log.error("Calibration: \(error, privacy: .public)")
+        } else {
+            Self.log.notice("Calibration: the settings are back on")
+        }
+        errors[.calibration] = error
     }
 
     /// How long a display that just turned on needs before it accepts DDC writes.
@@ -517,18 +558,22 @@ final class DisplayManager {
         guard let level else { return }
         if display.isBuiltin {
             lastBuiltinBacklight = Float(level)
-            let result = PrivateAPI.setBrightness?(display.id, Float(level))
-            if display.builtinWrites.record(succeeded: result == 0) {
-                display.writeError = display.builtinWrites.error
-                if display.writeError != nil {
-                    Self.log.error("Display \(display.id, privacy: .public): could not set the brightness (error \(result ?? -1, privacy: .public))")
-                }
-            }
+            recordBuiltinWrite(display, result: PrivateAPI.setBrightness?(display.id, Float(level)))
         } else {
             // nil: the write waits for the read in flight, which tells the monitor's maximum.
             if let raw = display.brightnessDDC.set(level) {
                 display.ddc?.setLater(vcp: VCP.brightness, value: raw)
             }
+        }
+    }
+
+    /// Counts a built-in brightness write, with the result of `DisplayServicesSetBrightness` (nil: not called), and
+    /// shows an error under the display while the writes fail. Also for the writes of the calibration.
+    func recordBuiltinWrite(_ display: Display, result: Int32?) {
+        guard display.builtinWrites.record(succeeded: result == 0) else { return }
+        display.writeError = display.builtinWrites.error
+        if display.writeError != nil {
+            Self.log.error("Display \(display.id, privacy: .public): could not set the brightness (error \(result ?? -1, privacy: .public))")
         }
     }
 
