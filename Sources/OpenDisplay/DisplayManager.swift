@@ -66,6 +66,18 @@ final class Display: Identifiable {
     var colorPreset: UInt8?
     var input: UInt8?
 
+    /// The display mode, its choices, rotation and main display, read from macOS at each refresh (see
+    /// `DisplayManager.readArrangement`). macOS does not report them for a display that is off: then `nil`, empty, 0
+    /// and false.
+    var mode: CGDisplayMode?
+    /// One mode per size, largest first (see `DisplayModes.resolutions`).
+    var resolutions: [CGDisplayMode] = []
+    /// The refresh rates at the current size, highest first (see `DisplayModes.refreshRates`).
+    var refreshRates: [CGDisplayMode] = []
+    /// Degrees, clockwise.
+    var rotation = 0
+    var isMain = false
+
     init(id: CGDirectDisplayID, name: String) {
         self.id = id
         self.name = name
@@ -122,10 +134,6 @@ final class DisplayManager {
     var errors = ErrorSlots()
     /// All errors as the one text the menu shows, nil if there is none.
     var lastError: String? { errors.text }
-    /// Goes up after each refresh. Rows that show state macOS does not report changes for
-    /// (display modes, main display, rotation) read it, so they update after a change.
-    private(set) var revision = 0
-
     @ObservationIgnored private var byID: [CGDirectDisplayID: Display] = [:]
     @ObservationIgnored private var observer: NSObjectProtocol?
     @ObservationIgnored private var wakeObservers: [NSObjectProtocol] = []
@@ -268,6 +276,7 @@ final class DisplayManager {
             let display = byID[id] ?? Display(id: id, name: disabled[id] ?? Self.name(of: id))
             display.rememberedKey = keys[id]
             display.settingsKey = keysForSettings[id]
+            readArrangement(display, isActive: active.contains(id))
             if changes.isChanging(id) {
                 next.append(display)
                 continue
@@ -349,7 +358,6 @@ final class DisplayManager {
         observeBuiltinBrightness()
         syncFromBuiltin()
         XDRBoost.shared.displaysChanged()
-        revision += 1
         keepADisplayOn()
         // After a crash during a calibration: at the launch, and for a display that was not there, when it comes back.
         CalibrationSession.restoreUnfinished(manager: self)
@@ -1038,12 +1046,17 @@ final class DisplayManager {
 
     // MARK: Display modes
 
-    /// Changes the resolution or refresh rate. Applying blocks until macOS has changed the display, so it runs off the main thread.
+    /// Changes the resolution or refresh rate to a mode the menu showed. If the display no longer has the mode when it
+    /// applies, nothing changes and the menu shows an error (see `DisplayModeChoice`). Applying blocks until macOS has
+    /// changed the display, so it runs off the main thread.
     func setMode(_ display: Display, _ mode: CGDisplayMode) {
         let id = display.id
         // A display mode cannot change after macOS creates it, so it is safe to use on another thread.
         nonisolated(unsafe) let mode = mode
-        applyInBackground { DisplayModes.apply(mode, to: id) }
+        applyInBackground {
+            if let error = DisplayModes.unavailable(mode, on: id) { return error }
+            return DisplayModes.apply(mode, to: id)
+        }
     }
 
     /// Runs a display change off the main thread (it blocks until macOS has changed the display),
@@ -1055,6 +1068,12 @@ final class DisplayManager {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     if let error { self.errors[.action] = error }
+                    // Show the new mode, rotation or main display at once: the refresh waits for macOS to settle,
+                    // and until then the menu would take the old value as the current one.
+                    let active = Set(Self.activeDisplays())
+                    for display in self.displays {
+                        self.readArrangement(display, isActive: active.contains(display.id))
+                    }
                     self.scheduleRefresh()
                 }
             }
@@ -1062,6 +1081,17 @@ final class DisplayManager {
     }
 
     // MARK: Arrangement
+
+    /// Reads the display mode, its choices, rotation and main display from macOS, once per refresh. macOS does not tell
+    /// when they change, so the menu and the presets read them here, and a refresh follows each change.
+    private func readArrangement(_ display: Display, isActive: Bool) {
+        let id = display.id
+        display.mode = isActive ? DisplayModes.current(id) : nil
+        display.resolutions = isActive ? DisplayModes.resolutions(id) : []
+        display.refreshRates = isActive ? DisplayModes.refreshRates(id) : []
+        display.rotation = isActive ? DisplayArrangement.rotation(id) : 0
+        display.isMain = isActive && DisplayArrangement.isMain(id)
+    }
 
     func setMain(_ display: Display) {
         let id = display.id

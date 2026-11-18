@@ -222,8 +222,7 @@ private struct SettingsView: View {
     }
 
     private func presetRow(_ preset: Preset) -> some View {
-        // Read the revision, so the "Current" label follows display changes.
-        let current = manager.revision >= 0 && manager.matches(preset)
+        let current = manager.matches(preset)
         return LabeledContent {
             HStack {
                 if current {

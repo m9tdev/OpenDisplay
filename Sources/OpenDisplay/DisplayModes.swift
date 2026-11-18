@@ -1,4 +1,5 @@
 import CoreGraphics
+import DisplayPolicy
 import Foundation
 
 /// Resolutions and refresh rates of a display, from the public display mode API.
@@ -65,8 +66,14 @@ enum DisplayModes {
         }
     }
 
-    static func isCurrent(_ mode: CGDisplayMode, of id: CGDirectDisplayID) -> Bool {
-        current(id)?.ioDisplayModeID == mode.ioDisplayModeID
+    /// The error message when the display no longer has `mode` (see `DisplayModeChoice`), else `nil`.
+    static func unavailable(_ mode: CGDisplayMode, on id: CGDirectDisplayID) -> String? {
+        DisplayModeChoice.unavailable(choice(mode), offered: all(id).map(choice))
+    }
+
+    private static func choice(_ mode: CGDisplayMode) -> DisplayModeChoice.Mode {
+        .init(id: mode.ioDisplayModeID, width: mode.width, height: mode.height, pixelWidth: mode.pixelWidth,
+              refreshRate: mode.refreshRate)
     }
 
     static func resolutionTitle(_ mode: CGDisplayMode) -> String {
