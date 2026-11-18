@@ -1068,6 +1068,12 @@ final class DisplayManager {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     if let error { self.errors[.action] = error }
+                    // Show the new mode, rotation or main display at once: the refresh waits for macOS to settle,
+                    // and until then the menu would take the old value as the current one.
+                    let active = Set(Self.activeDisplays())
+                    for display in self.displays {
+                        self.readArrangement(display, isActive: active.contains(display.id))
+                    }
                     self.scheduleRefresh()
                 }
             }

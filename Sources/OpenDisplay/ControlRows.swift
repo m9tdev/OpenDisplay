@@ -21,7 +21,7 @@ final class SteppedSliderRowView: MenuRowView {
     private let slider = MenuSlider(value: 0, minValue: 0, maxValue: 1, target: nil, action: nil)
     private let choices: @MainActor () -> (choices: [MenuChoice], current: Int?)
     /// The choices the slider shows now.
-    private var shown: [MenuChoice] = []
+    private var shown = SteppedChoices<MenuChoice>()
 
     /// - Parameters:
     ///   - choices: The choices in order (low end first) and the index of the current one. `keepUpdated` runs it
@@ -85,31 +85,30 @@ final class SteppedSliderRowView: MenuRowView {
     required init?(coder: NSCoder) { fatalError() }
 
     private func reload() {
-        let (shown, current) = choices()
-        self.shown = shown
-        slider.maxValue = Double(max(shown.count - 1, 1))
-        slider.isEnabled = shown.count > 1
-        if let current, slider.gesture.followsStoredValue {
+        let (choices, current) = self.choices()
+        // While the knob is held, the slider keeps the list it shows (see `SteppedChoices`).
+        guard shown.update(choices, current: current, gesture: slider.gesture) else { return }
+        slider.maxValue = Double(max(choices.count - 1, 1))
+        slider.isEnabled = choices.count > 1
+        if let current {
             slider.doubleValue = Double(current)
-            valueLabel.stringValue = shown[current].title
+            valueLabel.stringValue = choices[current].title
         }
     }
 
     @objc private func slid() {
         // Snap to a choice and show it. It applies when the mouse goes up, or at once without the mouse.
         guard slider.gesture.moved(to: slider.doubleValue) else { return }
-        let index = min(max(Int(slider.doubleValue.rounded()), 0), shown.count - 1)
+        let index = min(max(Int(slider.doubleValue.rounded()), 0), shown.choices.count - 1)
         slider.doubleValue = Double(index)
-        valueLabel.stringValue = shown.indices.contains(index) ? shown[index].title : ""
+        valueLabel.stringValue = shown.choices.indices.contains(index) ? shown.choices[index].title : ""
         applyChoice()
     }
 
     /// Returns whether it applied a choice.
     @discardableResult private func applyChoice() -> Bool {
-        guard let choice = slider.gesture.choice(Int(slider.doubleValue.rounded()), current: choices().current),
-              shown.indices.contains(choice)
-        else { return false }
-        shown[choice].apply()
+        guard let choice = shown.choice(at: Int(slider.doubleValue.rounded()), gesture: slider.gesture) else { return false }
+        choice.apply()
         return true
     }
 
