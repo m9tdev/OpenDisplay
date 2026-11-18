@@ -152,7 +152,8 @@ class MenuRowView: NSView {
 
         animationStart = (frame.height, alphaValue, CACurrentMediaTime())
         // A display link calls `step` once per screen refresh, so each frame lines up with the screen.
-        // A hidden view has no window yet, so use the main screen as fallback.
+        // A view that is not in the menu's window yet (the menu can still be opening) has no screen: use the main
+        // screen then.
         guard let link = (window?.screen ?? NSScreen.main)?.displayLink(target: self, selector: #selector(step(_:))) else {
             return finish()
         }

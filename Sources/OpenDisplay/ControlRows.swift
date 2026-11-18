@@ -444,13 +444,10 @@ final class ToggleRowView: MenuRowView {
 
     override func mouseUp(with event: NSEvent) {
         action(event.modifierFlags)
-        // Some settings are not observable (for example Launch at Login), so draw the new state now.
-        render()
     }
 
     override func accessibilityPerformPress() -> Bool {
         action([])
-        render()
         return true
     }
 }

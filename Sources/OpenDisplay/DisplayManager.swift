@@ -1103,7 +1103,8 @@ final class DisplayManager {
         }
     }
 
-    /// Reads the values in the Options submenu. The menu calls this when it opens, so they are ready in time.
+    /// Reads the contrast, color preset and input that the menu rows show. The menu calls this when it opens, so they
+    /// are ready in time.
     func readDDCSettings(_ display: Display) {
         guard let ddc = display.ddc, case let .read(capabilities) = display.capabilities else { return }
         let generation = display.connectionGeneration

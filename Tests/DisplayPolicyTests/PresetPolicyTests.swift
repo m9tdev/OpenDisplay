@@ -180,15 +180,13 @@ final class PresetPolicyTests: XCTestCase {
     }
 
     func testADisplayIsNeverTurnedOnAndOffByOnePreset() {
-        let on = Preset.DisplayState(key: externalKey, name: "BenQ", isEnabled: true, isMain: true, width: 1920,
-                                     height: 1080, pixelWidth: 3840, refreshRate: 60, rotation: 0)
-        var off = on
+        // A preset with two entries for the external display, one on and one off (for example edited by hand).
+        var preset = PresetPolicy.current(named: "Desk", displays: displays(externalOn: true))
+        var off = preset.displays[0]
         off.isEnabled = false
-        var builtinOff = on
-        builtinOff.key = builtinKey
-        builtinOff.isEnabled = false
-        let changes = PresetPolicy.changes([(3, on), (3, off), (1, builtinOff)])
-        XCTAssertEqual(changes, .init(turnsOn: [3], turnsOff: [1]))
+        preset.displays.append(off)
+        let changes = PresetPolicy.changes(PresetPolicy.targets(of: preset, displays: displays(externalOn: true)))
+        XCTAssertEqual(changes, .init(turnsOn: [3, 1], turnsOff: []))
     }
 
     func testAnEntryWhoseDisplayIDNowHasAnotherDisplayGoesToTheDisplayWithItsKey() {
