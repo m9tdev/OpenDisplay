@@ -36,6 +36,16 @@ final class ArrangementResultTests: XCTestCase {
                        "Could not change the main display (error 1004).")
     }
 
+    func testDisplaysThatMirrorNoOtherAreMoved() {
+        XCTAssertEqual(ArrangementResult.displaysToMove([(id: 1, mirrors: 0), (id: 5, mirrors: 0)]), [1, 5])
+    }
+
+    func testADisplayThatMirrorsAnotherIsNotMoved() {
+        // Its master positions it; moving it may fail, and that would cancel the whole change every time.
+        XCTAssertEqual(ArrangementResult.displaysToMove([(id: 1, mirrors: 0), (id: 5, mirrors: 1), (id: 7, mirrors: 0)]),
+                       [1, 7])
+    }
+
     // MARK: Rotation
 
     func testTheRotationAskedForIsNoError() {
