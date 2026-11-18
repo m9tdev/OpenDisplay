@@ -278,15 +278,15 @@ final class DisplayManager {
         for id in active {
             marks.markOn(id)
         }
-        // A mark from an earlier login session is stale: the display was unplugged while off. The built-in display
-        // keeps its mark (the safety net needs it), also when only macOS still says it is built-in.
-        let session = Self.loginSession
-        marks = marks.pruned(session: session, builtins: builtins.union(marks.names.keys.filter {
-            DisplayPolicy.isTrue(CGDisplayIsBuiltin($0))
-        }))
+        // A mark from an earlier login session is stale once its display is unplugged, or after a restart. The
+        // built-in display keeps its mark: the safety net needs it.
+        marks = marks.pruned(session: Self.loginSession, builtins: builtins, online: online, reports: marks.names.keys.map {
+            DisplayReport(id: $0, isBuiltin: CGDisplayIsBuiltin($0), isOnline: CGDisplayIsOnline($0),
+                          isActive: CGDisplayIsActive($0), vendor: CGDisplayVendorNumber($0), model: CGDisplayModelNumber($0))
+        })
         let dropped = storedMarks.names.keys.filter { marks.names[$0] == nil && !active.contains($0) }
         if !dropped.isEmpty {
-            Self.log.notice("Turned off in an earlier login session, no longer marked: \(dropped.sorted(), privacy: .public)")
+            Self.log.notice("Turned off in an earlier login session and gone, no longer marked: \(dropped.sorted(), privacy: .public)")
         }
         if marks != storedMarks { offMarks = marks }
         let disabled = marks.names

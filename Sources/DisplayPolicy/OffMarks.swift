@@ -29,22 +29,37 @@ public struct OffMarks: Equatable, Sendable {
     }
 
     /// The marks at launch and at each refresh, in the login session `session` (nil: not known). `builtins`: the
-    /// built-in displays, as far as they are known.
+    /// displays remembered as built-in. `online`: `CGGetOnlineDisplayList`. `reports`: what macOS answers now for the
+    /// marked displays.
     ///
-    /// - A mark from another session is dropped, unless its display is built-in: the safety net needs the built-in
-    ///   display's mark, or a MacBook whose last external display is unplugged has no screen.
+    /// - A mark from another session is dropped if it comes from before a restart (a restart turns every display on
+    ///   again), or if macOS says its display is not connected: not in `online`, and `CGDisplayIsOnline` answers 0.
+    ///   A display that macOS does not know now (-1, as when it is off) or that has no report may still be connected
+    ///   and off: it keeps its mark, the only way back to it for the menu and the safety net.
+    /// - The built-in display (remembered, or answered 1 by `CGDisplayIsBuiltin`) keeps its mark: the safety net needs
+    ///   it, or a MacBook whose last external display is unplugged has no screen.
     /// - A mark without a session (saved by an earlier version) is kept and gets this session, so only a later session
     ///   can drop it.
     /// - Without a known session, no mark is dropped or stamped.
-    public func pruned(session: String?, builtins: Set<UInt32>) -> OffMarks {
+    public func pruned(session: String?, builtins: Set<UInt32>, online: [UInt32],
+                       reports: [DisplayReport]) -> OffMarks {
         var marks = OffMarks(names: names, sessions: sessions.filter { names[$0.key] != nil })
         guard let session else { return marks }
+        let reports = Dictionary(reports.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         for id in names.keys {
             guard let made = marks.sessions[id] else {
                 marks.sessions[id] = session
                 continue
             }
-            if made != session && !builtins.contains(id) {
+            guard made != session, !builtins.contains(id), reports[id]?.isBuiltin != 1 else { continue }
+            let restarted: Bool
+            if let madeIn = LoginSession.boot(of: made), let now = LoginSession.boot(of: session) {
+                restarted = madeIn != now
+            } else {
+                restarted = false
+            }
+            let unplugged = !online.contains(id) && reports[id]?.isOnline == 0
+            if restarted || unplugged {
                 marks.markOn(id)
             }
         }
@@ -53,15 +68,22 @@ public struct OffMarks: Equatable, Sendable {
 }
 
 /// Identifies the login session, for `OffMarks`. It must not change during a login session, and must differ in the
-/// next one, also after a logout without a restart.
+/// next one, also after a logout without a restart. It starts with the boot session, so a restart can be told apart.
 public enum LoginSession {
-    /// From the session of the window server (`CGSessionCopyCurrentDictionary`): its unique session ID
-    /// (`CGSSessionUniqueSessionUUID`). Without one, its audit session ID (`kCGSSessionAuditIDKey`) with the boot
-    /// session (`kern.bootsessionuuid`), because audit session IDs can repeat after a restart. nil if neither is
-    /// known.
+    /// The boot session (`kern.bootsessionuuid`), then the session of the window server
+    /// (`CGSessionCopyCurrentDictionary`): its unique session ID (`CGSSessionUniqueSessionUUID`), or without one its
+    /// audit session ID (`kCGSSessionAuditIDKey`), which can repeat after a restart. Without the boot session, the
+    /// unique session ID alone. nil if the session is not known.
     public static func identifier(uniqueSession: String?, auditSession: Int?, bootSession: String?) -> String? {
-        if let uniqueSession, !uniqueSession.isEmpty { return uniqueSession }
-        guard let auditSession, let bootSession, !bootSession.isEmpty else { return nil }
-        return "\(bootSession)/\(auditSession)"
+        let uniqueSession = uniqueSession.flatMap { $0.isEmpty ? nil : $0 }
+        guard let bootSession, !bootSession.isEmpty else { return uniqueSession }
+        guard let login = uniqueSession ?? auditSession.map(String.init) else { return nil }
+        return "\(bootSession)/\(login)"
+    }
+
+    /// The boot session in `identifier`, nil if it has none.
+    static func boot(of identifier: String) -> String? {
+        guard let slash = identifier.firstIndex(of: "/") else { return nil }
+        return String(identifier[..<slash])
     }
 }
