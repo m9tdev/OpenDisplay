@@ -51,6 +51,15 @@ final class OffMarksTests: XCTestCase {
         XCTAssertEqual(pruned(marks, session: now), OffMarks(names: [:], sessions: [:]))
     }
 
+    func testADisplayInTheOnlineListKeepsItsMarkFromBeforeARestart() {
+        // The display is connected, so its mark may be the only way back to it, whatever the mark's session says.
+        let marks = OffMarks(names: [3: "TV"], sessions: [3: beforeRestart])
+        let kept = pruned(marks, session: now, builtins: [], online: [3], reports: [report(3, online: -1)])
+        XCTAssertEqual(kept, marks)
+        XCTAssertEqual(restored(kept, builtins: []), [3])
+        XCTAssertEqual(pruned(marks, session: now, builtins: [], online: [3], reports: [report(3, online: 1)]), marks)
+    }
+
     func testADisplayStillConnectedKeepsItsMarkFromAnEarlierSessionOfThisBoot() {
         // If the TV is still off after the session changed, its mark must stay: it is the only way back to it, for
         // the menu and for the safety net. On a Mac without a built-in display, nothing else could turn it on.
