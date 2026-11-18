@@ -280,6 +280,60 @@ final class CalibrationPolicyTests: XCTestCase {
         XCTAssertNil(CalibrationRecord(data: Data("not a record".utf8)))
     }
 
+    /// A record in another format, for example from a newer or older version of the app.
+    private func decoded(_ json: String) throws -> CalibrationRecord {
+        try XCTUnwrap(CalibrationRecord(data: Data(json.utf8)))
+    }
+
+    func testARecordWithAnExtraFieldIsRead() throws {
+        let read = try decoded(#"{"autoBrightness": true, "trueTone": true, "builtinBrightness": 0.6,"#
+            + #" "externalKey": "4C2D-0E36-1234", "externalBrightness": 0.45, "xdr": true}"#)
+        XCTAssertEqual(read, record)
+    }
+
+    func testARecordWithAMissingFieldKeepsAutomaticBrightnessAndTrueTone() throws {
+        let read = try decoded(#"{"autoBrightness": true, "trueTone": true, "builtinBrightness": 0.6}"#)
+        XCTAssertTrue(read.autoBrightness)
+        XCTAssertTrue(read.trueTone)
+        XCTAssertEqual(read.builtinBrightness, 0.6)
+    }
+
+    func testARecordWithAChangedFieldKeepsAutomaticBrightnessAndTrueTone() throws {
+        let read = try decoded(#"{"autoBrightness": true, "trueTone": true, "builtinBrightness": {"level": 0.6},"#
+            + #" "externalKey": "4C2D-0E36-1234", "externalBrightness": 0.45}"#)
+        XCTAssertTrue(read.autoBrightness)
+        XCTAssertTrue(read.trueTone)
+        XCTAssertNil(read.builtinBrightness)
+        XCTAssertEqual(read.externalBrightness, 0.45)
+    }
+
+    func testARecordWhoseExternalDisplayCannotBeReadPutsBackNoExternalBrightness() throws {
+        // Without its key, the brightness could go to another display.
+        let read = try decoded(#"{"autoBrightness": true, "trueTone": true, "builtinBrightness": 0.6,"#
+            + #" "externalKey": 42, "externalBrightness": 0.45}"#)
+        XCTAssertTrue(read.autoBrightness)
+        XCTAssertTrue(read.trueTone)
+        XCTAssertEqual(read.builtinBrightness, 0.6)
+        XCTAssertNil(read.externalBrightness)
+    }
+
+    func testARecordWithoutTrueToneKeepsAutomaticBrightness() throws {
+        let read = try decoded(#"{"autoBrightness": true}"#)
+        XCTAssertTrue(read.autoBrightness)
+        XCTAssertFalse(read.trueTone)
+    }
+
+    func testANewCalibrationKeepsWhatAnUnfinishedOneInAnotherFormatTurnedOff() throws {
+        // The unfinished calibration turned both off, so the new one finds them off. Its record must still say they
+        // were on, or they stay off for good.
+        let unfinished = try decoded(#"{"autoBrightness": true, "trueTone": true, "externalKey": 42}"#)
+        let new = CalibrationRecord(autoBrightness: false, trueTone: false, builtinBrightness: 0.2,
+                                    externalKey: "4C2D-0E36-1234", externalBrightness: 0)
+        let kept = new.keeping(unfinished)
+        XCTAssertTrue(kept.autoBrightness)
+        XCTAssertTrue(kept.trueTone)
+    }
+
     func testANewCalibrationKeepsWhatAnUnfinishedOneTurnedOff() {
         // The unfinished calibration turned both off, so the new one finds them off.
         let new = CalibrationRecord(autoBrightness: false, trueTone: false, builtinBrightness: 0.2,

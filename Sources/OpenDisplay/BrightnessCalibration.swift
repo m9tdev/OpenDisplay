@@ -1,6 +1,7 @@
 import CoreGraphics
 import DisplayPolicy
 import Foundation
+import os
 
 /// The measured brightness of an external display model, from matching it by eye with the built-in display.
 ///
@@ -71,8 +72,14 @@ enum CalibrationStore {
     private static let key = "brightnessCalibrations"
 
     static func load() -> [String: BrightnessCalibration] {
-        guard let data = UserDefaults.standard.data(forKey: key) else { return [:] }
-        return (try? JSONDecoder().decode([String: BrightnessCalibration].self, from: data)) ?? [:]
+        // A calibration that cannot be read (for example from a newer version of the app) is left out; all the saved
+        // data stays under the backup key. `version` is not checked: a newer version that still decodes is used.
+        let (calibrations, backupKey) = StoredJSON.loadEntries(BrightnessCalibration.self, forKey: key)
+        if let backupKey {
+            DisplayManager.log.error(
+                "Some saved calibrations could not be read. All saved calibrations are kept under \(backupKey, privacy: .public).")
+        }
+        return calibrations
     }
 
     static func save(_ calibrations: [String: BrightnessCalibration]) {

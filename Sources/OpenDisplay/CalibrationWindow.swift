@@ -1,5 +1,6 @@
 import AppKit
 import DisplayPolicy
+import os
 import SwiftUI
 
 /// Calibrates the brightness of an external display by eye, against the built-in display.
@@ -62,7 +63,7 @@ final class CalibrationSession {
                                    builtinBrightness: builtin.brightness, externalKey: external.stableKey,
                                    externalBrightness: external.brightness)
             // A crash's record that the launch has not put back yet.
-            .keeping(CalibrationRecord(data: UserDefaults.standard.data(forKey: Self.recordKey)))
+            .keeping(Self.unfinishedRecord())
         // Before the changes: if the app ends without `finish` (a crash), the next launch puts them back.
         UserDefaults.standard.set(record.data, forKey: Self.recordKey)
         if autoBrightnessOn {
@@ -205,6 +206,19 @@ final class CalibrationSession {
         }
     }
 
+    /// The record of a calibration the app could not finish, if there is one. A record that cannot be read at all is
+    /// moved to a backup key: then the app cannot tell whether automatic brightness and True Tone were on before.
+    private static func unfinishedRecord() -> CalibrationRecord? {
+        let (record, backupKey) = StoredJSON.load(CalibrationRecord.self, forKey: recordKey)
+        if let backupKey {
+            DisplayManager.log.error("""
+                The record of an unfinished calibration could not be read. It is kept under \(backupKey, privacy: .public). \
+                Automatic brightness and True Tone may still be off: check them in System Settings.
+                """)
+        }
+        return record
+    }
+
     /// Ends the calibration, if one runs, and puts back what it changed. For when the app quits.
     static func finishCurrent() {
         current?.finish()
@@ -213,7 +227,7 @@ final class CalibrationSession {
     /// Puts back what a calibration changed if the app ended during it without `finish` (a crash). Call after each
     /// refresh: a part for a display that is not there stays in the record until the display comes back.
     static func restoreUnfinished(manager: DisplayManager) {
-        guard CalibrationRecord(data: UserDefaults.standard.data(forKey: recordKey)) != nil else { return }
+        guard unfinishedRecord() != nil else { return }
         // After the first DDC reads: then a brightness write uses the monitor's own maximum, and no read overwrites it.
         // Until then the record stays, so a quit still leaves it for the next launch.
         DispatchQueue.main.asyncAfter(deadline: .now() + DisplayManager.ddcReadyDelay) {
@@ -221,7 +235,7 @@ final class CalibrationSession {
                 // A calibration that started meanwhile took the record over (see `CalibrationRecord.keeping`), and
                 // puts it back when it ends.
                 guard current == nil,
-                      let record = CalibrationRecord(data: UserDefaults.standard.data(forKey: recordKey)) else { return }
+                      let record = unfinishedRecord() else { return }
                 let builtin = manager.displays.first { $0.isBuiltin && $0.isEnabled }
                 let external = manager.displays.first { !$0.isBuiltin && $0.isEnabled && $0.stableKey == record.externalKey }
                 let state: CalibrationRecord.External = if let external {

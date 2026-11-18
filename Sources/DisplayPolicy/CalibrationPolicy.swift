@@ -195,6 +195,28 @@ public struct CalibrationRecord: Codable, Equatable, Sendable {
         self.externalBrightness = externalBrightness
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case autoBrightness, trueTone, builtinBrightness, externalKey, externalBrightness
+    }
+
+    /// Reads each field on its own, so that a record in another format (from another version of the app) still tells
+    /// whether automatic brightness and True Tone were on. Otherwise a crash during a calibration leaves both off for
+    /// good: the next calibration finds them off and records that. A field that cannot be read counts as not changed
+    /// or not known.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func field<V: Decodable>(_ type: V.Type, _ key: CodingKeys) -> V? {
+            (try? container.decodeIfPresent(type, forKey: key)) ?? nil
+        }
+        autoBrightness = field(Bool.self, .autoBrightness) ?? false
+        trueTone = field(Bool.self, .trueTone) ?? false
+        builtinBrightness = field(Double.self, .builtinBrightness)
+        let externalKey = field(String.self, .externalKey)
+        self.externalKey = externalKey ?? ""
+        // Without the display's key, the brightness could go to another display.
+        externalBrightness = externalKey == nil ? nil : field(Double.self, .externalBrightness)
+    }
+
     /// For UserDefaults.
     public var data: Data? {
         try? JSONEncoder().encode(self)

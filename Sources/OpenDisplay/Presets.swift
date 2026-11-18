@@ -2,6 +2,7 @@ import AppKit
 import CoreGraphics
 import DisplayPolicy
 import Observation
+import os
 
 @MainActor
 @Observable
@@ -10,10 +11,13 @@ final class PresetStore {
     private static let key = "presets"
 
     private(set) var presets: [Preset] = {
-        guard let data = UserDefaults.standard.data(forKey: key) else { return [] }
-        return (try? JSONDecoder().decode([Preset].self, from: data)) ?? []
+        let (presets, backupKey) = StoredJSON.load([Preset].self, forKey: key)
+        if let backupKey {
+            DisplayManager.log.error("The saved presets could not be read. They are kept under \(backupKey, privacy: .public).")
+        }
+        return presets ?? []
     }() {
-        didSet { UserDefaults.standard.set(try? JSONEncoder().encode(presets), forKey: Self.key) }
+        didSet { StoredJSON.save(presets, forKey: Self.key) }
     }
 
     /// Saves a preset. A preset with the same name is replaced.
