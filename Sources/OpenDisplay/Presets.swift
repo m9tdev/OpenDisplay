@@ -153,11 +153,11 @@ extension DisplayManager {
                     for change in started { _ = self.changes.end(change) }
                     // Only mark the displays that really turned off. `refresh` clears the ones that are on again, so
                     // a display the preset could not turn on stays marked as off.
-                    var disabled = self.disabled
+                    var marks = self.offMarks
                     for (id, state) in steps where off.contains(id) {
-                        disabled[id] = state.name
+                        marks.markOff(id, name: state.name, session: Self.loginSession)
                     }
-                    self.disabled = disabled
+                    self.offMarks = marks
                     finish(report)
                     self.refresh()
                     // Brightness last: a display that just turned on needs a moment before it accepts DDC.
