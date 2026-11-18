@@ -57,6 +57,19 @@ final class ErrorSlotsTests: XCTestCase {
         XCTAssertEqual(second.text, first.text)
     }
 
+    func testTheCalibrationErrorShowsBetweenTheOthers() {
+        // A setting the calibration could not turn back on: after the restore error (no display may be on), before
+        // the result of the latest action.
+        let calibrationError = CalibrationPolicy.restoreError(autoBrightnessFailed: true, trueToneFailed: false)!
+        var errors = ErrorSlots()
+        errors[.action] = actionError
+        errors[.calibration] = calibrationError
+        errors[.restore] = restoreError
+        XCTAssertEqual(errors.text, "\(restoreError) \(calibrationError) \(actionError)")
+        errors[.action] = nil
+        XCTAssertEqual(errors[.calibration], calibrationError)
+    }
+
     func testTheSameTextFromTwoSourcesIsTwoErrors() {
         // Clearing one source must not clear the other, even with the same text.
         var errors = ErrorSlots()

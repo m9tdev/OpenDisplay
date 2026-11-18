@@ -7,6 +7,8 @@ import Foundation
 public struct DimmingOutcome: Equatable, Sendable {
     /// The error the menu shows when macOS did not let the app dim a display.
     public static let failureMessage = "Could not dim this display in software"
+    /// The error the menu shows when macOS did not take back the dimmed color table: the display stays dimmed.
+    public static let undoFailureMessage = "Could not undo the software dimming of this display"
 
     /// The slider position for the light the display really gives. `nil` if no position was known.
     public var slider: Double?
@@ -20,8 +22,17 @@ public struct DimmingOutcome: Equatable, Sendable {
     ///   - slider: The slider position the app set, `nil` if none is known yet.
     ///   - dimming: The software dimming the app asked for (1: none).
     ///   - dimmed: True if macOS now dims the display by `dimming`. False: the display shows its normal image.
-    public init(control: BrightnessControl, slider: Double?, dimming: Double, dimmed: Bool) {
-        guard !dimmed && dimming < 1 else {
+    ///   - undone: For `dimming` 1: false if macOS did not take back the dimming of an earlier call, so the display
+    ///     may still be dimmed. Not used for a `dimming` below 1.
+    public init(control: BrightnessControl, slider: Double?, dimming: Double, dimmed: Bool, undone: Bool = true) {
+        guard dimming < 1 else {
+            // The slider keeps its position: the error tells the user the display is darker than it shows.
+            self.slider = slider
+            self.dimming = dimming
+            self.error = undone ? nil : Self.undoFailureMessage
+            return
+        }
+        guard !dimmed else {
             self.slider = slider
             self.dimming = dimming
             self.error = nil

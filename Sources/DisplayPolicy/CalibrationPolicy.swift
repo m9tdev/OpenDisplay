@@ -55,6 +55,51 @@ public enum CalibrationPolicy {
         // Without the built-in display there is nothing to follow, but the shared brightness works without it.
         return sharedBrightness.map { .applyShared($0) } ?? .nothing
     }
+
+    /// The error to show when the calibration could not turn automatic brightness or True Tone back on, nil if
+    /// nothing failed. Without it, the setting stays off for good and the user does not know why.
+    public static func restoreError(autoBrightnessFailed: Bool, trueToneFailed: Bool) -> String? {
+        let names = [autoBrightnessFailed ? "automatic brightness" : nil, trueToneFailed ? "True Tone" : nil]
+            .compactMap { $0 }
+        guard !names.isEmpty else { return nil }
+        return "Could not turn \(names.joined(separator: " and ")) back on after the calibration. "
+            + "Check \(names.count > 1 ? "them" : "it") in System Settings > Displays."
+    }
+}
+
+/// The settings the calibration could not turn back on (automatic brightness, True Tone), for the error the menu shows.
+///
+/// Each setting keeps its failure until it is on again or the user has seen the error, so the result of one setting
+/// does not clear the failure of the other. A check never adds a failure: a setting that is off without a failed
+/// restore is the user's choice.
+public struct CalibrationRestoreFailures: Equatable, Sendable {
+    public private(set) var autoBrightness = false
+    public private(set) var trueTone = false
+
+    public init() {}
+
+    /// The error to show, nil if none.
+    public var error: String? {
+        CalibrationPolicy.restoreError(autoBrightnessFailed: autoBrightness, trueToneFailed: trueTone)
+    }
+
+    /// The calibration turned settings back on.
+    /// - Parameters:
+    ///   - autoBrightnessOn: Whether automatic brightness is on after the restore; nil if this restore did not set it.
+    ///   - trueToneOn: The same for True Tone.
+    ///   - errorShown: False if the menu shows no calibration error now: the user has seen and closed an earlier one.
+    public mutating func restored(autoBrightnessOn: Bool?, trueToneOn: Bool?, errorShown: Bool) {
+        if !errorShown { self = Self() }
+        if let autoBrightnessOn { autoBrightness = !autoBrightnessOn }
+        if let trueToneOn { trueTone = !trueToneOn }
+    }
+
+    /// What macOS reports now (nil: not known). A failed setting that is on now is no longer an error.
+    public mutating func checked(autoBrightnessOn: Bool?, trueToneOn: Bool?, errorShown: Bool) {
+        if !errorShown { self = Self() }
+        if autoBrightnessOn == true { autoBrightness = false }
+        if trueToneOn == true { trueTone = false }
+    }
 }
 
 /// Keeps the built-in display at the calibration's level when macOS changes it, without a fast loop: if macOS rounds

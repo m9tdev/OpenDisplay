@@ -18,13 +18,11 @@ enum SoftwareDimming {
     private static let gamma = 2.2
 
     /// - Parameter factor: The light output: 1 is the normal image, 0.2 is 20 % of its light.
-    /// - Returns: False if macOS did not give or take the display's color table: then the display is not dimmed.
+    /// - Returns: False if macOS did not give or take the display's color table: then the display is not dimmed. For
+    ///   a `factor` of 1: false if macOS did not take back the table from before the dimming (see `restore`).
     @discardableResult
     static func set(_ factor: Double, for id: CGDirectDisplayID) -> Bool {
-        guard factor < 1 else {
-            restore(id)
-            return true
-        }
+        guard factor < 1 else { return restore(id) }
         guard let original = originals[id] ?? read(id) else { return false }
         // The table holds color values, not light. Scaling the values by f scales the light by f^2.2,
         // so scale the values by factor^(1/2.2) to get the light factor.
@@ -42,9 +40,19 @@ enum SoftwareDimming {
         return true
     }
 
-    static func restore(_ id: CGDirectDisplayID) {
-        guard var table = originals.removeValue(forKey: id) else { return }
-        CGSetDisplayTransferByTable(id, UInt32(table.red.count), &table.red, &table.green, &table.blue)
+    /// Puts back the table from before the dimming.
+    /// - Parameter keepsOnFailure: If macOS does not take the table, keep it, so the next call puts it back. False for
+    ///   a display that went away: macOS resets its table, and its ID may later belong to another monitor.
+    /// - Returns: False if macOS did not take the table: the display may still be dimmed.
+    @discardableResult
+    static func restore(_ id: CGDirectDisplayID, keepsOnFailure: Bool = true) -> Bool {
+        guard var table = originals.removeValue(forKey: id) else { return true }
+        guard CGSetDisplayTransferByTable(id, UInt32(table.red.count), &table.red, &table.green, &table.blue) == .success
+        else {
+            if keepsOnFailure { originals[id] = table }
+            return false
+        }
+        return true
     }
 
     /// Drops the saved table without writing it, for a display ID that now belongs to another monitor: the table is the
@@ -57,7 +65,7 @@ enum SoftwareDimming {
     }
 
     static func restoreAll() {
-        originals.keys.forEach(restore)
+        for id in Array(originals.keys) { restore(id) }
     }
 
     private static func read(_ id: CGDirectDisplayID) -> Table? {

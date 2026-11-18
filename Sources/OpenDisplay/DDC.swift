@@ -14,6 +14,11 @@ final class DDCService: @unchecked Sendable {
     /// Newest value to write for each VCP code.
     private var pending: [UInt8: UInt16] = [:]
     private var busy = false
+    /// The writes that failed in a row over this connection, and the reads that worked (see `WriteFailures`). Used on
+    /// `queue` only.
+    private var writeFailures = WriteFailures.ddc
+    /// Called on the main queue when the error for the failed writes changes.
+    private var writeErrorChanged: (@Sendable (String?) -> Void)?
 
     private static let chipAddress: UInt32 = 0x37
     private static let dataAddress: UInt32 = 0x51
@@ -21,6 +26,31 @@ final class DDCService: @unchecked Sendable {
     init(service: CFTypeRef, entryID: UInt64?) {
         self.service = service
         self.entryID = entryID
+    }
+
+    /// Calls `handler` on the main queue each time the error for failed writes over this connection changes: the error
+    /// to show, or nil when a write works again.
+    func onWriteErrorChange(_ handler: @escaping @Sendable (String?) -> Void) {
+        lock.lock()
+        writeErrorChanged = handler
+        lock.unlock()
+    }
+
+    /// Starts the count of failed writes again, for example after a wake: writes to a monitor that slept can fail.
+    func resetWriteFailures() {
+        queue.async { self.updateWriteFailures { $0.reset() } }
+    }
+
+    /// Changes `writeFailures` on `queue`, and calls the handler if its error changed.
+    private func updateWriteFailures(_ change: (inout WriteFailures) -> Bool) {
+        guard change(&writeFailures) else { return }
+        let error = writeFailures.error
+        lock.lock()
+        let handler = writeErrorChanged
+        lock.unlock()
+        if let handler {
+            DispatchQueue.main.async { handler(error) }
+        }
     }
 
     /// Queue a write. If a write is in progress, only the newest value for each VCP code is sent next.
@@ -46,7 +76,9 @@ final class DDCService: @unchecked Sendable {
             }
             pending[vcp] = nil
             lock.unlock()
-            _ = write(vcp: vcp, value: value)
+            // Only a transport error fails: the monitor does not acknowledge a write.
+            let sent = write(vcp: vcp, value: value)
+            updateWriteFailures { $0.record(succeeded: sent) }
         }
     }
 
@@ -61,6 +93,7 @@ final class DDCService: @unchecked Sendable {
     func readLater(vcp: UInt8, completion: @escaping @Sendable ((current: UInt16, max: UInt16)?) -> Void) {
         queue.async {
             let result = self.read(vcp: vcp)
+            self.updateWriteFailures { $0.recordRead(succeeded: result != nil) }
             DispatchQueue.main.async { completion(result) }
         }
     }
@@ -69,6 +102,7 @@ final class DDCService: @unchecked Sendable {
     func capabilitiesLater(completion: @escaping @Sendable (String?) -> Void) {
         queue.async {
             let result = self.capabilities()
+            self.updateWriteFailures { $0.recordRead(succeeded: result != nil) }
             DispatchQueue.main.async { completion(result) }
         }
     }
