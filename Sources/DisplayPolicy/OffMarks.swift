@@ -1,9 +1,11 @@
 /// The displays OpenDisplay turned off ("marks"), with their names, and the login session each mark was made in.
 ///
 /// The marks keep a display that is off in the menu, and they are the only displays the safety net turns on again
-/// (`DisplayPolicy.displaysToRestore`). macOS turns a display off for the login session only. So a mark from an earlier
-/// session is stale: the display was unplugged while it was off, and with its mark it would stay "off" in the menu for
-/// good, and the safety net would try to turn it on. `pruned` drops such marks, except the built-in display's.
+/// (`DisplayPolicy.displaysToRestore`). macOS turns a display off for the login session only. A display that was
+/// unplugged while it was off would keep its mark for good: it would stay "off" in the menu, and the safety net would try
+/// to turn it on. `pruned` drops the mark of such a display once it is from an earlier session and the display is gone
+/// for sure: not in the online list, and either macOS answers that it is not connected or the mark is from before a
+/// restart. Any other mark stays, and the built-in display's mark always stays (see `pruned`).
 public struct OffMarks: Equatable, Sendable {
     /// The name of each display that OpenDisplay turned off, by `CGDirectDisplayID`.
     public var names: [UInt32: String]
@@ -32,10 +34,11 @@ public struct OffMarks: Equatable, Sendable {
     /// displays remembered as built-in. `online`: `CGGetOnlineDisplayList`. `reports`: what macOS answers now for the
     /// marked displays.
     ///
-    /// - A mark from another session is dropped if it comes from before a restart (a restart turns every display on
-    ///   again), or if macOS says its display is not connected: not in `online`, and `CGDisplayIsOnline` answers 0.
-    ///   A display that macOS does not know now (-1, as when it is off) or that has no report may still be connected
-    ///   and off: it keeps its mark, the only way back to it for the menu and the safety net.
+    /// - A mark from another session is dropped only if its display is not in `online`, and either the mark comes from
+    ///   before a restart (a restart turns every display on again) or `CGDisplayIsOnline` answers 0 (not connected).
+    ///   A display in `online` may still be connected and off, and so may one that macOS does not know now (-1, as
+    ///   when it is off) or that has no report, within the same boot: it keeps its mark, the only way back to it for
+    ///   the menu and the safety net.
     /// - The built-in display (remembered, or answered 1 by `CGDisplayIsBuiltin`) keeps its mark: the safety net needs
     ///   it, or a MacBook whose last external display is unplugged has no screen.
     /// - A mark without a session (saved by an earlier version) is kept and gets this session, so only a later session
@@ -59,7 +62,7 @@ public struct OffMarks: Equatable, Sendable {
                 restarted = false
             }
             let unplugged = !online.contains(id) && reports[id]?.isOnline == 0
-            if restarted || unplugged {
+            if (restarted && !online.contains(id)) || unplugged {
                 marks.markOn(id)
             }
         }
