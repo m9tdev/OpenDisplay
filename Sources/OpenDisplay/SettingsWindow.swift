@@ -10,6 +10,11 @@ import SwiftUI
 enum SettingsWindow {
     fileprivate static var window: NSWindow?
 
+    /// Fires each second while the window is open: the permission and the login item can change in System Settings,
+    /// so Settings checks them again. It stops when the window closes (the window is reused, so its views stay).
+    fileprivate static let recheck = PassthroughSubject<Void, Never>()
+    private static var recheckTimer: Timer?
+
     static func show(manager: DisplayManager, keyboard: KeyboardControl) {
         if window == nil {
             let hosting = NSHostingController(rootView: SettingsView(manager: manager, keyboard: keyboard))
@@ -21,6 +26,22 @@ enum SettingsWindow {
             window.isReleasedWhenClosed = false
             window.center()
             self.window = window
+            // The window lives as long as the app, so the observer is never removed.
+            _ = NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification, object: window, queue: .main
+            ) { _ in
+                MainActor.assumeIsolated {
+                    recheckTimer?.invalidate()
+                    recheckTimer = nil
+                }
+            }
+        }
+        if recheckTimer == nil {
+            let timer = Timer(timeInterval: 1, repeats: true) { _ in
+                MainActor.assumeIsolated { recheck.send() }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            recheckTimer = timer
         }
         // An app without a Dock icon is not active, and macOS refuses the normal (cooperative) activation
         // from a menu bar item. So use the older forced activation, and also bring the window to the front.
@@ -38,6 +59,11 @@ enum SettingsWindow {
         let selector = NSSelectorFromString("activateIgnoringOtherApps:")
         guard let method = NSApp.method(for: selector) else { return NSApp.activate() }
         unsafeBitCast(method, to: Activate.self)(NSApp, selector, true)
+    }
+
+    /// Whether a window notification is about the Settings window, not another window of the app.
+    fileprivate static func isAboutSettings(_ notification: Notification) -> Bool {
+        WindowNotification.isAbout(notification.object as AnyObject?, window: window)
     }
 }
 
@@ -57,9 +83,6 @@ private struct SettingsView: View {
     @State private var loginItemMessage = LoginItemMessage()
     /// The result of the last Apply or the reason it changed nothing, shown under the presets.
     @State private var applyMessage = PresetPolicy.ApplyMessage()
-
-    /// The permission and the login item can change in System Settings, so check them again.
-    private let recheck = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         Form {
@@ -144,15 +167,15 @@ private struct SettingsView: View {
         .fixedSize(horizontal: false, vertical: true)
         // The window is reused: an old preset message must not show the next time it opens.
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
-            if let window = notification.object as? NSWindow, window === SettingsWindow.window { applyMessage.close() }
+            if SettingsWindow.isAboutSettings(notification) { applyMessage.close() }
         }
-        .onReceive(recheck) { _ in
+        .onReceive(SettingsWindow.recheck) { _ in
             hasPermission = KeyboardControl.hasPermission
             recheckLoginItem()
         }
         // Also check at once when Settings is shown, and when the user comes back from System Settings.
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
-            if let window = notification.object as? NSWindow, window === SettingsWindow.window { recheckLoginItem() }
+            if SettingsWindow.isAboutSettings(notification) { recheckLoginItem() }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             recheckLoginItem()
@@ -187,9 +210,10 @@ private struct SettingsView: View {
                     .foregroundStyle(.orange)
             }
         }
-        // The settings can change with the monitor's own buttons, so read them each time the window opens.
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
-            manager.readMonitorSettings(display)
+        // The settings can change with the monitor's own buttons, so read them each time the Settings window becomes
+        // key (opens, or the user comes back to it). Not for other windows: each read goes over DDC.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
+            if SettingsWindow.isAboutSettings(notification) { manager.readMonitorSettings(display) }
         }
         .onAppear { manager.readMonitorSettings(display) }
     }
