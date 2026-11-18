@@ -116,8 +116,8 @@ final class ErrorSlotsTests: XCTestCase {
         XCTAssertEqual(errors.text, presetError)
     }
 
-    func testAPresetKeepsTheErrorsOfTheDisplays() {
-        // A preset clears only the error of the last preset.
+    func testThePresetSlotKeepsTheErrorsOfTheDisplays() {
+        // Clearing the preset's error alone keeps the errors of the displays.
         var errors = ErrorSlots()
         errors[.display(1)] = actionError
         errors[.preset] = presetError
@@ -135,6 +135,19 @@ final class ErrorSlotsTests: XCTestCase {
         errors[.calibration] = calibrationError
         errors[.restore] = restoreError
         XCTAssertEqual(errors.text, "\(restoreError) \(calibrationError) \(actionError) \(otherError) \(presetError)")
+    }
+
+    func testAPresetClearsTheErrorsOfTheDisplaysItChanges() {
+        // Turning display 1 off failed; then a preset changes displays 1 and 2. The old error of display 1 goes, as at
+        // the start of any change of display 1, and so does the error of the last preset. Display 3 keeps its error.
+        var errors = ErrorSlots()
+        errors[.display(1)] = actionError
+        errors[.display(3)] = otherError
+        errors[.preset] = presetError
+        errors.startPreset(changing: [1, 2])
+        XCTAssertNil(errors[.display(1)])
+        XCTAssertNil(errors[.preset])
+        XCTAssertEqual(errors.text, otherError)
     }
 
     func testRemoveAllClearsTheDisplaysAndThePreset() {
