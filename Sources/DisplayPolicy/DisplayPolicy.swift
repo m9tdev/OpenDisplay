@@ -170,22 +170,27 @@ public enum DisplayPolicy {
     /// macOS also accepts turning on a display ID that is not connected now, and changes nothing. The display then
     /// stays off for the rest of the login session, also once it is plugged in again, and macOS does not list it as
     /// online. So a display that is not on after it was turned on keeps its off mark (see `OffMarks`): the mark is the
-    /// only way back to it, for the menu and for the safety net.
-    public static func turnOnError(_ error: String?, isActive: Bool, name: String) -> String? {
+    /// only way back to it, for the menu and for the safety net. The built-in display (`isBuiltin`) is not unplugged
+    /// but stays off while the lid is closed.
+    public static func turnOnError(_ error: String?, isActive: Bool, name: String, isBuiltin: Bool) -> String? {
         if let error { return error }
         guard !isActive else { return nil }
+        if isBuiltin { return "\(name) did not turn on. If the lid is closed, open it and turn it on again." }
         return "\(name) did not turn on. If it is unplugged, plug it in and turn it on again."
     }
 
     /// Turns on the first of `candidates` (from `displaysToRestore`) that turns on, in order. `turnOn` applies it and
-    /// returns its error (nil: macOS accepted it), and `isActive` tells if a display is on right after. A display
-    /// that macOS accepted but that is not on fails (see `turnOnError`), and the next one is tried. `names`: the
-    /// names for the errors.
-    public static func turnOnFirst(of candidates: [UInt32], names: [UInt32: String], turnOn: (UInt32) -> String?,
+    /// returns its error (nil: macOS accepted it), and `isActive` tells if a display is on right after: it is read
+    /// after `turnOn`. A display that macOS accepted but that is not on fails (see `turnOnError`), and the next one
+    /// is tried. `names` and `builtins` (the built-in displays): for the errors.
+    public static func turnOnFirst(of candidates: [UInt32], names: [UInt32: String], builtins: Set<UInt32>,
+                                   turnOn: (UInt32) -> String?,
                                    isActive: (UInt32) -> Bool) -> (restored: UInt32?, failures: [(id: UInt32, error: String)]) {
         var failures: [(id: UInt32, error: String)] = []
         for id in candidates {
-            let error = turnOnError(turnOn(id), isActive: isActive(id), name: names[id] ?? "Display \(id)")
+            let applied = turnOn(id)
+            let error = turnOnError(applied, isActive: isActive(id), name: names[id] ?? "Display \(id)",
+                                    isBuiltin: builtins.contains(id))
             guard let error else { return (id, failures) }
             failures.append((id, error))
         }

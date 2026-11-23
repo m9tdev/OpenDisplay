@@ -934,6 +934,7 @@ final class DisplayManager {
 
         let id = display.id
         let name = display.name
+        let isBuiltin = display.isBuiltin
         let builtins = builtinIDs
         display.isEnabled = enabled
         let change = changes.begin(id)
@@ -965,7 +966,9 @@ final class DisplayManager {
             // A display that macOS accepts but that is not on (it is unplugged) keeps its mark, so the menu still
             // shows it as off, with a way to turn it on (see `DisplayPolicy.turnOnError`).
             let error = enabled
-                ? DisplayPolicy.turnOnError(applied, isActive: Self.activeDisplays().contains(id), name: name) : applied
+                ? DisplayPolicy.turnOnError(applied, isActive: Self.activeDisplays().contains(id), name: name,
+                                            isBuiltin: isBuiltin)
+                : applied
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     // A later change of the display (a quick second click) sets the state it shows, and its result
@@ -1100,7 +1103,7 @@ final class DisplayManager {
             // A display that macOS accepts but that is not on (it is unplugged) keeps its mark, and the next one is
             // tried (see `DisplayPolicy.turnOnError`).
             let (restored, failures) = DisplayPolicy.turnOnFirst(
-                of: candidates, names: disabled,
+                of: candidates, names: disabled, builtins: Set(states.filter(\.isBuiltin).map(\.id)),
                 turnOn: { Self.applyEnabled($0, true, name: disabled[$0] ?? "Display \($0)", configure: configure) },
                 isActive: { Self.activeDisplays().contains($0) })
             for failure in failures {

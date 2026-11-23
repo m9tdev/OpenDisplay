@@ -154,12 +154,13 @@ final class OffMarksTests: XCTestCase {
     // a way to turn it on, and the safety net still tries it.
 
     func testADisplayThatMacOSAcceptsButDoesNotTurnOnHasNotTurnedOn() {
-        let error = DisplayPolicy.turnOnError(nil, isActive: false, name: "TV")
+        let error = DisplayPolicy.turnOnError(nil, isActive: false, name: "TV", isBuiltin: false)
         XCTAssertNotNil(error)
         XCTAssertTrue(error?.contains("TV") == true)
-        XCTAssertNil(DisplayPolicy.turnOnError(nil, isActive: true, name: "TV"))
+        XCTAssertNil(DisplayPolicy.turnOnError(nil, isActive: true, name: "TV", isBuiltin: false))
         // The error of macOS comes first.
-        XCTAssertEqual(DisplayPolicy.turnOnError("Could not turn on TV (error 1001).", isActive: false, name: "TV"),
+        XCTAssertEqual(DisplayPolicy.turnOnError("Could not turn on TV (error 1001).", isActive: false, name: "TV",
+                                                 isBuiltin: false),
                        "Could not turn on TV (error 1001).")
     }
 
@@ -167,12 +168,39 @@ final class OffMarksTests: XCTestCase {
         // The TV (3) was turned off, then unplugged: macOS accepts turning it on and changes nothing. The projector
         // (4) turns on.
         var asked: [UInt32] = []
-        let attempt = DisplayPolicy.turnOnFirst(of: [3, 4], names: [3: "TV"], turnOn: { asked.append($0); return nil },
+        let attempt = DisplayPolicy.turnOnFirst(of: [3, 4], names: [3: "TV"], builtins: [],
+                                                turnOn: { asked.append($0); return nil },
                                                 isActive: { $0 == 4 })
         XCTAssertEqual(asked, [3, 4])
         XCTAssertEqual(attempt.restored, 4)
         XCTAssertEqual(attempt.failures.map(\.id), [3])
         XCTAssertTrue(attempt.failures.first?.error.contains("TV") == true)
+    }
+
+    func testADisplayIsCheckedAfterItIsTurnedOn() {
+        // The display is on only once macOS turned it on: the check must read it after, not before.
+        var turnedOn: Set<UInt32> = []
+        let attempt = DisplayPolicy.turnOnFirst(of: [3], names: [3: "TV"], builtins: [],
+                                                turnOn: { turnedOn.insert($0); return nil },
+                                                isActive: { turnedOn.contains($0) })
+        XCTAssertEqual(attempt.restored, 3)
+        XCTAssertTrue(attempt.failures.isEmpty)
+    }
+
+    func testTheBuiltinDisplayThatDidNotTurnOnAsksToOpenTheLid() {
+        // With the lid closed, macOS accepts turning the built-in display on, and it stays off. It is not unplugged.
+        let error = DisplayPolicy.turnOnError(nil, isActive: false, name: "Built-in Display", isBuiltin: true)
+        XCTAssertTrue(error?.contains("Built-in Display") == true)
+        XCTAssertTrue(error?.contains("lid") == true)
+        XCTAssertFalse(error?.contains("unplugged") ?? true)
+        XCTAssertFalse(DisplayPolicy.turnOnError(nil, isActive: false, name: "TV", isBuiltin: false)?.contains("lid")
+                       ?? true)
+        // The safety net uses the same wording for the built-in display (1), and the other for the TV (3).
+        let attempt = DisplayPolicy.turnOnFirst(of: [1, 3], names: [1: "Built-in Display", 3: "TV"], builtins: [1],
+                                                turnOn: { _ in nil }, isActive: { _ in false })
+        XCTAssertEqual(attempt.failures.map(\.id), [1, 3])
+        XCTAssertTrue(attempt.failures[0].error.contains("lid"))
+        XCTAssertTrue(attempt.failures[1].error.contains("unplugged"))
     }
 
     func testTheSafetyNetKeepsTheMarkOfAnUnpluggedDisplayForWhenItIsPluggedInAgain() {
@@ -187,7 +215,8 @@ final class OffMarksTests: XCTestCase {
                                           disabled: Set(marks.names.keys), builtins: [1])
         let candidates = DisplayPolicy.displaysToRestore(in: states)
         XCTAssertEqual(candidates, [3])
-        let attempt = DisplayPolicy.turnOnFirst(of: candidates, names: marks.names, turnOn: { _ in nil },
+        let attempt = DisplayPolicy.turnOnFirst(of: candidates, names: marks.names, builtins: [1],
+                                                turnOn: { _ in nil },
                                                 isActive: { _ in false })
         XCTAssertNil(attempt.restored)
         XCTAssertEqual(attempt.failures.map(\.id), [3])
