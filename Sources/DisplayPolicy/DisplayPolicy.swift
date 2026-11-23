@@ -164,6 +164,34 @@ public enum DisplayPolicy {
         return shown ?? current
     }
 
+    /// The error of turning on the display `name`: `error` is what applying it returned (nil: macOS accepted it), and
+    /// `isActive` tells if the display is in `CGGetActiveDisplayList` right after. nil only if the display is on.
+    ///
+    /// macOS also accepts turning on a display ID that is not connected now, and changes nothing. The display then
+    /// stays off for the rest of the login session, also once it is plugged in again, and macOS does not list it as
+    /// online. So a display that is not on after it was turned on keeps its off mark (see `OffMarks`): the mark is the
+    /// only way back to it, for the menu and for the safety net.
+    public static func turnOnError(_ error: String?, isActive: Bool, name: String) -> String? {
+        if let error { return error }
+        guard !isActive else { return nil }
+        return "\(name) did not turn on. If it is unplugged, plug it in and turn it on again."
+    }
+
+    /// Turns on the first of `candidates` (from `displaysToRestore`) that turns on, in order. `turnOn` applies it and
+    /// returns its error (nil: macOS accepted it), and `isActive` tells if a display is on right after. A display
+    /// that macOS accepted but that is not on fails (see `turnOnError`), and the next one is tried. `names`: the
+    /// names for the errors.
+    public static func turnOnFirst(of candidates: [UInt32], names: [UInt32: String], turnOn: (UInt32) -> String?,
+                                   isActive: (UInt32) -> Bool) -> (restored: UInt32?, failures: [(id: UInt32, error: String)]) {
+        var failures: [(id: UInt32, error: String)] = []
+        for id in candidates {
+            let error = turnOnError(turnOn(id), isActive: isActive(id), name: names[id] ?? "Display \(id)")
+            guard let error else { return (id, failures) }
+            failures.append((id, error))
+        }
+        return (nil, failures)
+    }
+
     /// The displays to try to turn on again, in order, because no display is on. Empty if nothing needs to change.
     /// Only displays that OpenDisplay turned off, and no virtual ones. The built-in display first, then the online
     /// displays, then the others, each by ID (macOS may report a display that is off as offline).

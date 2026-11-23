@@ -961,7 +961,11 @@ final class DisplayManager {
                     return
                 }
             }
-            let error = Self.applyEnabled(id, enabled, name: name, configure: configure)
+            let applied = Self.applyEnabled(id, enabled, name: name, configure: configure)
+            // A display that macOS accepts but that is not on (it is unplugged) keeps its mark, so the menu still
+            // shows it as off, with a way to turn it on (see `DisplayPolicy.turnOnError`).
+            let error = enabled
+                ? DisplayPolicy.turnOnError(applied, isActive: Self.activeDisplays().contains(id), name: name) : applied
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     // A later change of the display (a quick second click) sets the state it shows, and its result
@@ -1093,20 +1097,18 @@ final class DisplayManager {
                 Keep a display on, check again: turn on \(candidates, privacy: .public); \
                 displays: \(Self.describe(states), privacy: .public)
                 """)
-            var restored: CGDirectDisplayID?
-            var failures: [(id: UInt32, error: String)] = []
-            for id in candidates {
-                if let error = Self.applyEnabled(id, true, name: disabled[id] ?? "Display \(id)", configure: configure) {
-                    Self.log.error("""
-                        Keep a display on: could not turn on \(id, privacy: .public): \(error, privacy: .private)
-                        """)
-                    failures.append((id, error))
-                } else {
-                    Self.log.notice("Keep a display on: turned on \(id, privacy: .public)")
-                    restored = id
-                    break
-                }
+            // A display that macOS accepts but that is not on (it is unplugged) keeps its mark, and the next one is
+            // tried (see `DisplayPolicy.turnOnError`).
+            let (restored, failures) = DisplayPolicy.turnOnFirst(
+                of: candidates, names: disabled,
+                turnOn: { Self.applyEnabled($0, true, name: disabled[$0] ?? "Display \($0)", configure: configure) },
+                isActive: { Self.activeDisplays().contains($0) })
+            for failure in failures {
+                Self.log.error("""
+                    Keep a display on: could not turn on \(failure.id, privacy: .public): \(failure.error, privacy: .private)
+                    """)
             }
+            if let restored { Self.log.notice("Keep a display on: turned on \(restored, privacy: .public)") }
             let outcome = DisplayPolicy.restoreOutcome(restored: restored, failures: failures, in: states,
                                                        attempt: retry, maxRetries: Self.restoreRetries)
             let failed = failures
