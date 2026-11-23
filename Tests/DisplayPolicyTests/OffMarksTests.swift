@@ -146,6 +146,90 @@ final class OffMarksTests: XCTestCase {
         XCTAssertEqual(marks, OffMarks(names: [1: "Built-in"], sessions: [1: now]))
     }
 
+    // MARK: Turning on a display that is not connected
+
+    // macOS accepts turning on a display ID that is not connected now and changes nothing: the display then stays
+    // off for the rest of the login session, also once it is plugged in again, and macOS does not list it. Only a
+    // display that is on right after counts as turned on, so the other keeps its mark: the menu still shows it, with
+    // a way to turn it on, and the safety net still tries it.
+
+    func testADisplayThatMacOSAcceptsButDoesNotTurnOnHasNotTurnedOn() {
+        let error = DisplayPolicy.turnOnError(nil, isActive: false, name: "TV", isBuiltin: false)
+        XCTAssertNotNil(error)
+        XCTAssertTrue(error?.contains("TV") == true)
+        XCTAssertNil(DisplayPolicy.turnOnError(nil, isActive: true, name: "TV", isBuiltin: false))
+        // The error of macOS comes first.
+        XCTAssertEqual(DisplayPolicy.turnOnError("Could not turn on TV (error 1001).", isActive: false, name: "TV",
+                                                 isBuiltin: false),
+                       "Could not turn on TV (error 1001).")
+    }
+
+    func testTheSafetyNetGoesOnWhenADisplayDoesNotTurnOn() {
+        // The TV (3) was turned off, then unplugged: macOS accepts turning it on and changes nothing. The projector
+        // (4) turns on.
+        var asked: [UInt32] = []
+        let attempt = DisplayPolicy.turnOnFirst(of: [3, 4], names: [3: "TV"], builtins: [],
+                                                turnOn: { asked.append($0); return nil },
+                                                isActive: { $0 == 4 })
+        XCTAssertEqual(asked, [3, 4])
+        XCTAssertEqual(attempt.restored, 4)
+        XCTAssertEqual(attempt.failures.map(\.id), [3])
+        XCTAssertTrue(attempt.failures.first?.error.contains("TV") == true)
+    }
+
+    func testADisplayIsCheckedAfterItIsTurnedOn() {
+        // The display is on only once macOS turned it on: the check must read it after, not before.
+        var turnedOn: Set<UInt32> = []
+        let attempt = DisplayPolicy.turnOnFirst(of: [3], names: [3: "TV"], builtins: [],
+                                                turnOn: { turnedOn.insert($0); return nil },
+                                                isActive: { turnedOn.contains($0) })
+        XCTAssertEqual(attempt.restored, 3)
+        XCTAssertTrue(attempt.failures.isEmpty)
+    }
+
+    func testTheBuiltinDisplayThatDidNotTurnOnAsksToOpenTheLid() {
+        // With the lid closed, macOS accepts turning the built-in display on, and it stays off. It is not unplugged.
+        let error = DisplayPolicy.turnOnError(nil, isActive: false, name: "Built-in Display", isBuiltin: true)
+        XCTAssertTrue(error?.contains("Built-in Display") == true)
+        XCTAssertTrue(error?.contains("lid") == true)
+        XCTAssertFalse(error?.contains("unplugged") ?? true)
+        XCTAssertFalse(DisplayPolicy.turnOnError(nil, isActive: false, name: "TV", isBuiltin: false)?.contains("lid")
+                       ?? true)
+        // The safety net uses the same wording for the built-in display (1), and the other for the TV (3).
+        let attempt = DisplayPolicy.turnOnFirst(of: [1, 3], names: [1: "Built-in Display", 3: "TV"], builtins: [1],
+                                                turnOn: { _ in nil }, isActive: { _ in false })
+        XCTAssertEqual(attempt.failures.map(\.id), [1, 3])
+        XCTAssertTrue(attempt.failures[0].error.contains("lid"))
+        XCTAssertTrue(attempt.failures[1].error.contains("unplugged"))
+    }
+
+    func testTheSafetyNetKeepsTheMarkOfAnUnpluggedDisplayForWhenItIsPluggedInAgain() {
+        // As seen on a Mac with its lid closed: the monitor (3) was turned off, then unplugged, so only the
+        // placeholder (7) is on and macOS does not know the monitor (-1).
+        let marks = OffMarks(names: [3: "Monitor"], sessions: [3: now])
+        let unplugged = [
+            DisplayReport(id: 7, isBuiltin: 0, isOnline: 1, isActive: 1, vendor: 0x756E_6B6E, model: 0x7669_7274),
+            DisplayReport(id: 3, isBuiltin: -1, isOnline: -1, isActive: -1, vendor: 0xFFFF_FFFF, model: 0xFFFF_FFFF),
+        ]
+        let states = DisplayPolicy.states(online: [7], active: [7], reports: unplugged,
+                                          disabled: Set(marks.names.keys), builtins: [1])
+        let candidates = DisplayPolicy.displaysToRestore(in: states)
+        XCTAssertEqual(candidates, [3])
+        let attempt = DisplayPolicy.turnOnFirst(of: candidates, names: marks.names, builtins: [1],
+                                                turnOn: { _ in nil },
+                                                isActive: { _ in false })
+        XCTAssertNil(attempt.restored)
+        XCTAssertEqual(attempt.failures.map(\.id), [3])
+        // No error for a display that may be unplugged, but tried again.
+        XCTAssertEqual(DisplayPolicy.restoreOutcome(restored: attempt.restored, failures: attempt.failures, in: states,
+                                                    attempt: 0, maxRetries: 3),
+                       DisplayPolicy.RestoreOutcome(retries: true, error: nil))
+        // Plugged in again, it is still off and not in the online list, and macOS answers 0: it keeps its mark.
+        let kept = pruned(marks, session: now, builtins: [1], online: [7], reports: [report(3, online: 0)])
+        XCTAssertEqual(kept, marks)
+        XCTAssertEqual(restored(kept), [3])
+    }
+
     // MARK: The safety net
 
     func testTheSafetyNetFindsADisplayTurnedOffInThisSession() {
