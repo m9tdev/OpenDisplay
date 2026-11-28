@@ -27,7 +27,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         self.manager = manager
         self.keyboard = keyboard
         super.init()
-        statusItem.button?.image = MenuBarIcon.image()
         menu.delegate = self
         // All items stay enabled. With automatic enabling, the rows (items with a view but no action) are
         // disabled, and NSMenu never highlights them, so their hover highlights (see `Hover`) would not show.
@@ -37,6 +36,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.minimumWidth = Layout.width
         statusItem.menu = menu
         watchNeededRows()
+        Updates.shared.onReminderChange = { [weak self] in self?.update() }
 
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
@@ -215,11 +215,23 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         update()
     }
 
+    /// The update reminder in the menu now (see `UpdateReminder`).
+    private var builtReminder: String?
+    /// The menu bar icon shows the update dot, `nil` before the first image.
+    private var iconBadge: Bool?
+
     /// Applies the rules in the type comment: build while closed, or reopen if the open menu misses rows.
+    /// An update reminder that comes or goes while the menu is open shows the next time it opens; the dot on the
+    /// menu bar icon shows at once.
     private func update() {
+        let reminder = Updates.shared.reminder
+        if reminder.showsBadge != iconBadge {
+            iconBadge = reminder.showsBadge
+            statusItem.button?.image = MenuBarIcon.image(badge: reminder.showsBadge)
+        }
         let needed = neededRows()
         if !MenuState.isOpen {
-            if needed != builtRows { buildItems(needed) }
+            if needed != builtRows || reminder.menuTitle != builtReminder { buildItems(needed) }
         } else if rowsMissing() || enabledDisplays() != menuEnabledDisplays {
             reopen.want(at: Self.now)
             menuEnabledDisplays = enabledDisplays()
@@ -232,6 +244,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     /// Presets and settings are in the Settings window.
     private func buildItems(_ rows: Set<String>) {
         builtRows = rows
+        builtReminder = Updates.shared.reminder.menuTitle
         menu.removeAllItems()
 
         // The general error message is in the same item as the title, so it can expand fully.
@@ -251,6 +264,12 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
+        // A found update that Sparkle did not show, because its window would open behind the active app.
+        if let title = builtReminder {
+            let reminder = NSMenuItem(title: title, action: #selector(checkForUpdates), keyEquivalent: "")
+            reminder.target = self
+            menu.addItem(reminder)
+        }
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
