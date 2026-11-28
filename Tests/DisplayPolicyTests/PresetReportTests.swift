@@ -240,4 +240,57 @@ final class PresetReportTests: XCTestCase {
         XCTAssertFalse(results.failed(1))
         XCTAssertNil(PresetPolicy.report(skipped: [], results: results))
     }
+
+    // MARK: Turning displays on
+
+    func testADisplayThatThePresetTurnsOnButStaysOffSaysItDidNotTurnOn() {
+        // The Dell (3) was turned off, then unplugged: macOS accepts turning it on and changes nothing.
+        let targets = [(id: UInt32(3), state: dell)]
+        var asked: [UInt32] = []
+        let results = PresetPolicy.turnOn(targets, builtins: [1], turnOn: { id, _ in asked.append(id); return nil },
+                                          isActive: { _ in false })
+        XCTAssertEqual(asked, [3])
+        XCTAssertTrue(results.failed(3))
+        XCTAssertEqual(results.errors,
+                       [DisplayPolicy.turnOnError(nil, isActive: false, name: "Dell", isBuiltin: false)!])
+        // Its later steps add nothing: the report says it did not turn on, not that its resolution is missing.
+        var later = results
+        later.record(3, error: PresetPolicy.resolutionNotAvailable(dell))
+        let report = PresetPolicy.report(skipped: [], results: later)
+        XCTAssertTrue(report?.contains("did not turn on") == true)
+        XCTAssertFalse(report?.contains("resolution") ?? true)
+    }
+
+    func testTheBuiltinDisplayThatThePresetTurnsOnButStaysOffAsksToOpenTheLid() {
+        let builtin = entry(builtinKey, "Built-in", on: true)
+        let results = PresetPolicy.turnOn([(id: 1, state: builtin)], builtins: [1], turnOn: { _, _ in nil },
+                                          isActive: { _ in false })
+        XCTAssertTrue(results.errors.first?.contains("lid") == true)
+    }
+
+    func testADisplayThatThePresetTurnsOnIsCheckedAfterItIsTurnedOn() {
+        var on: Set<UInt32> = []
+        let results = PresetPolicy.turnOn([(id: 3, state: dell)], builtins: [], turnOn: { id, _ in
+            on.insert(id)
+            return nil
+        }, isActive: { on.contains($0) })
+        XCTAssertEqual(on, [3])
+        XCTAssertFalse(results.failed(3))
+    }
+
+    func testThePresetTurnsOnOnlyTheDisplaysThatAreOffAndThatItWantsOn() {
+        // The Dell (3) is on already, the LG (4) is off, and the preset turns the built-in display (1) off.
+        var asked: [UInt32] = []
+        let targets = [(id: UInt32(3), state: dell), (id: 4, state: lg), (id: 1, state: entry(builtinKey, "Built-in", on: false))]
+        let results = PresetPolicy.turnOn(targets, builtins: [1], turnOn: { id, _ in asked.append(id); return nil },
+                                          isActive: { $0 == 3 || asked.contains($0) })
+        XCTAssertEqual(asked, [4])
+        XCTAssertEqual(results, PresetPolicy.StepResults())
+    }
+
+    func testTheErrorOfMacOSComesFirstWhenThePresetTurnsADisplayOn() {
+        let results = PresetPolicy.turnOn([(id: 3, state: dell)], builtins: [], turnOn: { _, _ in "Could not turn on Dell (error 1001)." },
+                                          isActive: { _ in false })
+        XCTAssertEqual(results.errors, ["Could not turn on Dell (error 1001)."])
+    }
 }
