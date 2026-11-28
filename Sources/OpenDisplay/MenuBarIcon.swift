@@ -8,15 +8,29 @@ import AppKit
 enum MenuBarIcon {
     static let size = NSSize(width: 20, height: 16)
 
-    static func image() -> NSImage {
+    /// - Parameter badge: Show a dot at the top right, for a found update (see `UpdateReminder`).
+    static func image(badge: Bool = false) -> NSImage {
         let image = NSImage(size: size, flipped: true) { _ in
             NSColor.black.set()
             draw()
+            if badge { drawBadge() }
             return true
         }
         image.isTemplate = true
-        image.accessibilityDescription = "OpenDisplay"
+        image.accessibilityDescription = badge ? "OpenDisplay, update available" : "OpenDisplay"
         return image
+    }
+
+    /// A dot on the top right corner of the screen, with a clear ring around it so it stands apart from the bezel.
+    private static func drawBadge() {
+        let center = NSPoint(x: 17, y: 3)
+        func circle(_ radius: CGFloat) -> NSBezierPath {
+            NSBezierPath(ovalIn: NSRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
+        }
+        NSGraphicsContext.current?.compositingOperation = .clear
+        circle(4).fill()
+        NSGraphicsContext.current?.compositingOperation = .sourceOver
+        circle(2.75).fill()
     }
 
     private static func draw() {
