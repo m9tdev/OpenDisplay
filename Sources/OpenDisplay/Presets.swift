@@ -103,13 +103,15 @@ extension DisplayManager {
 
         configQueue.async {
             // One error per display: its first failure (a display that did not turn on also fails its later steps).
-            var results = PresetPolicy.StepResults()
-            // Turn displays on first, so there is always a display that is on.
+            // Turn displays on first, so there is always a display that is on. A display that macOS accepts but that
+            // is not on after (it is unplugged, or the lid is closed) fails, and keeps its off mark.
             // From the list: CGDisplayIsActive returns -1 for a display that is off (see `DisplayPolicy.states`).
-            for (id, state) in steps where state.isEnabled && !Self.activeDisplays().contains(id) {
-                results.record(id, error: Self.applyEnabled(id, true, name: state.name, configure: configure))
-            }
-            for (id, state) in steps where state.isEnabled {
+            var results = PresetPolicy.turnOn(
+                steps, builtins: builtins,
+                turnOn: { Self.applyEnabled($0, true, name: $1, configure: configure) },
+                isActive: { Self.activeDisplays().contains($0) })
+            // A display that did not turn on has no modes or rotation to set: its error already says why.
+            for (id, state) in steps where state.isEnabled && !results.failed(id) {
                 let current = DisplayModes.current(id)
                 let same = current.map {
                     $0.width == state.width && $0.height == state.height && $0.pixelWidth == state.pixelWidth
@@ -161,7 +163,7 @@ extension DisplayManager {
                     finish(report)
                     self.refresh()
                     // Brightness last: a display that just turned on needs a moment before it accepts DDC.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Self.ddcReadyDelay) {
                         MainActor.assumeIsolated {
                             self.refresh()
                             // Synced displays last: their shared brightness also sets the built-in display.

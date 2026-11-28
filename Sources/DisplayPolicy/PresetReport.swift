@@ -77,6 +77,24 @@ extension PresetPolicy {
         }
     }
 
+    /// Turns on the displays of `targets` that the preset wants on and that are off now, the first step of Apply.
+    /// `turnOn` applies it to a display (its ID and name) and returns its error (nil: macOS accepted it), and
+    /// `isActive` tells if a display is on: it is read before, to skip a display that is on already, and again right
+    /// after `turnOn`. As for the menu and the safety net, a display that macOS accepted but that is not on did not
+    /// turn on (see `DisplayPolicy.turnOnError`): that is its error, not the later steps it then fails too.
+    /// `builtins`: the built-in displays, for the wording of that error.
+    public static func turnOn(_ targets: [(id: UInt32, state: Preset.DisplayState)], builtins: Set<UInt32>,
+                              turnOn: (UInt32, String) -> String?,
+                              isActive: (UInt32) -> Bool) -> StepResults {
+        var results = StepResults()
+        for (id, state) in targets where state.isEnabled && !isActive(id) {
+            let applied = turnOn(id, state.name)
+            results.record(id, error: DisplayPolicy.turnOnError(applied, isActive: isActive(id), name: state.name,
+                                                                isBuiltin: builtins.contains(id)))
+        }
+        return results
+    }
+
     /// The message after Apply: what it skipped, then one error per display that failed. `nil` when Apply did
     /// everything.
     public static func report(skipped: [String], results: StepResults) -> String? {
